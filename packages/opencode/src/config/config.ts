@@ -193,7 +193,7 @@ export namespace Config {
 
     // Also scan project root node_modules for package agents
     const projectNodeModules = path.join(Instance.worktree, "node_modules")
-    result.agent = mergeDeep(result.agent, await loadPackageAgents(projectNodeModules))
+    result.agent = mergeDeep(result.agent ?? {}, await loadPackageAgents(projectNodeModules))
 
     // Migrate deprecated mode field to agent field
     for (const [name, mode] of Object.entries(result.mode ?? {})) {
