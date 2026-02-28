@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "OpenCode Session Modal Dev",
+  "identifier": "ai.opencode.desktop.sessionmodal.dev",
+  "build": {
+    "beforeDevCommand": "bun --cwd ../session-modal dev",
+    "devUrl": "http://localhost:3011",
+    "beforeBuildCommand": "bun --cwd ../session-modal build",
+    "frontendDist": "../../session-modal/dist"
+  },
+  "bundle": {
+    "active": false
+  }
+}

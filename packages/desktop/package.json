@@ -8,6 +8,7 @@
     "typecheck": "tsgo -b",
     "predev": "bun ./scripts/predev.ts",
     "dev": "vite",
+    "dev:session-modal": "tauri dev --config src-tauri/tauri.session-modal.conf.json",
     "build": "bun run typecheck && vite build",
     "preview": "vite preview",
     "tauri": "tauri"
