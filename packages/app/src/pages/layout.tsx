@@ -66,7 +66,7 @@ import {
   syncWorkspaceOrder,
   workspaceKey,
 } from "./layout/helpers"
-import { collectOpenProjectDeepLinks, deepLinkEvent, drainPendingDeepLinks } from "./layout/deep-links"
+import { collectDeepLinkActions, deepLinkEvent, drainPendingDeepLinks } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
 import {
   LocalWorkspace,
@@ -1157,8 +1157,15 @@ export default function Layout(props: ParentProps) {
 
   const handleDeepLinks = (urls: string[]) => {
     if (!server.isLocal()) return
-    for (const directory of collectOpenProjectDeepLinks(urls)) {
-      openProject(directory)
+    for (const action of collectDeepLinkActions(urls)) {
+      if (action.type === "open-project") {
+        openProject(action.directory)
+        continue
+      }
+
+      openProject(action.directory, false)
+      const href = `/${base64Encode(action.directory)}/session/${action.sessionID}`
+      navigateWithSidebarReset(href)
     }
   }
 
