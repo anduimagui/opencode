@@ -60,6 +60,7 @@ declare global {
       updaterEnabled?: boolean
       deepLinks?: string[]
       wsl?: boolean
+      openSessionSearchOnStart?: boolean
     }
   }
 }

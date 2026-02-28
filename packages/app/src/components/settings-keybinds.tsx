@@ -12,7 +12,7 @@ import { useSettings } from "@/context/settings"
 
 const IS_MAC = typeof navigator === "object" && /(Mac|iPod|iPhone|iPad)/.test(navigator.platform)
 const PALETTE_ID = "command.palette"
-const DEFAULT_PALETTE_KEYBIND = "mod+shift+p"
+const DEFAULT_PALETTE_KEYBIND = "mod+p"
 
 type KeybindGroup = "General" | "Session" | "Navigation" | "Model and agent" | "Terminal" | "Prompt"
 
