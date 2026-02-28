@@ -451,7 +451,7 @@ render(() => {
             }
             const server: ServerConnection.Any = data.is_sidecar
               ? {
-                  displayName: "Local Server",
+                  displayName: t("desktop.server.local"),
                   type: "sidecar",
                   variant: "base",
                   http,
