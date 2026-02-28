@@ -52,6 +52,7 @@ import { DialogSettings } from "@/components/dialog-settings"
 import { useCommand, type CommandOption } from "@/context/command"
 import { ConstrainDragXAxis } from "@/utils/solid-dnd"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
+import { DialogSelectSession } from "@/components/dialog-select-session"
 import { DialogEditProject } from "@/components/dialog-edit-project"
 import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
@@ -927,6 +928,13 @@ export default function Layout(props: ParentProps) {
         onSelect: () => openSettings(),
       },
       {
+        id: "session.search.all",
+        title: language.t("command.session.searchAll"),
+        category: language.t("command.category.session"),
+        keybind: "mod+shift+p",
+        onSelect: () => dialog.show(() => <DialogSelectSession />),
+      },
+      {
         id: "session.previous",
         title: language.t("command.session.previous"),
         category: language.t("command.category.session"),
@@ -1060,6 +1068,12 @@ export default function Layout(props: ParentProps) {
     }
 
     return commands
+  })
+
+  onMount(() => {
+    if (!window.__OPENCODE__?.openSessionSearchOnStart) return
+    window.__OPENCODE__.openSessionSearchOnStart = false
+    queueMicrotask(() => command.trigger("session.search.all"))
   })
 
   function connectProvider() {

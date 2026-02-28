@@ -70,6 +70,11 @@ export async function createMenu(trigger: (id: string) => void) {
             action: () => trigger("session.new"),
           }),
           await MenuItem.new({
+            text: "Search All Sessions...",
+            accelerator: "Shift+Cmd+P",
+            action: () => trigger("session.search.all"),
+          }),
+          await MenuItem.new({
             text: "Open Project...",
             accelerator: "Cmd+O",
             action: () => trigger("project.open"),

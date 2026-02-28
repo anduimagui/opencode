@@ -44,6 +44,12 @@ void initI18n()
 let update: Update | null = null
 
 const deepLinkEvent = "opencode:deep-link"
+const openSessionSearchOnStart = import.meta.env.VITE_OPEN_SESSION_SEARCH === "1"
+
+if (openSessionSearchOnStart) {
+  window.__OPENCODE__ ??= {}
+  window.__OPENCODE__.openSessionSearchOnStart = true
+}
 
 const emitDeepLinks = (urls: string[]) => {
   if (urls.length === 0) return
