@@ -51,6 +51,7 @@ function SessionStatus(props: {
 }
 
 function SessionEntryRow(props: { item: Entry }) {
+  const language = useLanguage()
   const notification = useNotification()
   const permission = usePermission()
   const globalSync = useGlobalSync()
@@ -103,7 +104,7 @@ function SessionEntryRow(props: { item: Entry }) {
         </div>
       </div>
       <span class="text-12-regular text-text-weak whitespace-nowrap ml-2">
-        {props.item.updated ? getRelativeTime(new Date(props.item.updated).toISOString()) : ""}
+        {props.item.updated ? getRelativeTime(new Date(props.item.updated).toISOString(), language.t) : ""}
       </span>
     </div>
   )
