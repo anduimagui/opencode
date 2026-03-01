@@ -75,6 +75,11 @@ export async function createMenu(trigger: (id: string) => void) {
             action: () => trigger("session.search.all"),
           }),
           await MenuItem.new({
+            text: t("desktop.menu.file.renameSession"),
+            accelerator: "Shift+Cmd+E",
+            action: () => trigger("session.rename"),
+          }),
+          await MenuItem.new({
             text: t("desktop.menu.file.openProject"),
             accelerator: "Cmd+O",
             action: () => trigger("project.open"),
