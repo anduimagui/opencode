@@ -1114,7 +1114,6 @@ export default function Page() {
                     anchor={anchor}
                     onRegisterMessage={scrollSpy.register}
                     onUnregisterMessage={scrollSpy.unregister}
-                    lastUserMessageID={lastUserMessage()?.id}
                   />
                 </Show>
               </Match>

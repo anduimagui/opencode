@@ -106,7 +106,6 @@ export function MessageTimeline(props: {
   anchor: (id: string) => string
   onRegisterMessage: (el: HTMLDivElement, id: string) => void
   onUnregisterMessage: (id: string) => void
-  lastUserMessageID?: string
 }) {
   let touchGesture: number | undefined
 
@@ -613,7 +612,6 @@ export function MessageTimeline(props: {
                     <SessionTurn
                       sessionID={sessionID() ?? ""}
                       messageID={message.id}
-                      lastUserMessageID={props.lastUserMessageID}
                       showReasoningSummaries={settings.general.showReasoningSummaries()}
                       shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
                       editToolDefaultOpen={settings.general.editToolPartsExpanded()}
