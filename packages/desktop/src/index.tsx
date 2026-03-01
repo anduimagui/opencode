@@ -12,12 +12,11 @@ import {
 import { Splash } from "@opencode-ai/ui/logo"
 import type { AsyncStorage } from "@solid-primitives/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { readImage } from "@tauri-apps/plugin-clipboard-manager"
+import { readImage, writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link"
 import { open, save } from "@tauri-apps/plugin-dialog"
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http"
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification"
-import { openPath as openerOpenPath } from "@tauri-apps/plugin-opener"
 import { type as ostype } from "@tauri-apps/plugin-os"
 import { relaunch } from "@tauri-apps/plugin-process"
 import { open as shellOpen } from "@tauri-apps/plugin-shell"
@@ -44,6 +43,12 @@ void initI18n()
 let update: Update | null = null
 
 const deepLinkEvent = "opencode:deep-link"
+const openSessionSearchOnStart = import.meta.env.VITE_OPEN_SESSION_SEARCH === "1"
+
+if (openSessionSearchOnStart) {
+  window.__OPENCODE__ ??= {}
+  window.__OPENCODE__.openSessionSearchOnStart = true
+}
 
 const emitDeepLinks = (urls: string[]) => {
   if (urls.length === 0) return
@@ -116,20 +121,7 @@ const createPlatform = (): Platform => {
       void shellOpen(url).catch(() => undefined)
     },
     async openPath(path: string, app?: string) {
-      const os = ostype()
-      if (os === "windows") {
-        const resolvedApp = (app && (await commands.resolveAppPath(app))) || app
-        const resolvedPath = await (async () => {
-          if (window.__OPENCODE__?.wsl) {
-            const converted = await commands.wslPath(path, "windows").catch(() => null)
-            if (converted) return converted
-          }
-
-          return path
-        })()
-        return openerOpenPath(resolvedPath, resolvedApp)
-      }
-      return openerOpenPath(path, app)
+      await commands.openPath(path, app ?? null)
     },
 
     back() {
@@ -414,6 +406,13 @@ const createPlatform = (): Platform => {
         }, "image/png")
       })
     },
+
+    writeClipboardText: async (value: string) => {
+      return writeText(value).then(
+        () => true,
+        () => false,
+      )
+    },
   }
 }
 
@@ -459,7 +458,7 @@ render(() => {
             }
             const server: ServerConnection.Any = data.is_sidecar
               ? {
-                  displayName: "Local Server",
+                  displayName: t("desktop.server.local"),
                   type: "sidecar",
                   variant: "base",
                   http,

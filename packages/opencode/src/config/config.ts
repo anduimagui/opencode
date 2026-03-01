@@ -4,7 +4,6 @@ import { pathToFileURL, fileURLToPath } from "url"
 import { createRequire } from "module"
 import os from "os"
 import z from "zod"
-import { Filesystem } from "../util/filesystem"
 import { ModelsDev } from "../provider/models"
 import { mergeDeep, pipe, unique } from "remeda"
 import { Global } from "../global"
@@ -34,6 +33,8 @@ import { PackageRegistry } from "@/bun/registry"
 import { proxied } from "@/util/proxied"
 import { iife } from "@/util/iife"
 import { Control } from "@/control"
+import { ConfigPaths } from "./paths"
+import { Filesystem } from "@/util/filesystem"
 
 export namespace Config {
   const ModelId = z.string().meta({ $ref: "https://models.dev/model-schema.json#/$defs/Model" })
@@ -42,7 +43,7 @@ export namespace Config {
 
   // Managed settings directory for enterprise deployments (highest priority, admin-controlled)
   // These settings override all user and project settings
-  function getManagedConfigDir(): string {
+  function systemManagedConfigDir(): string {
     switch (process.platform) {
       case "darwin":
         return "/Library/Application Support/opencode"
@@ -53,10 +54,14 @@ export namespace Config {
     }
   }
 
-  const managedConfigDir = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR || getManagedConfigDir()
+  export function managedConfigDir() {
+    return process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR || systemManagedConfigDir()
+  }
+
+  const managedDir = managedConfigDir()
 
   // Custom merge function that concatenates array fields instead of replacing them
-  function merge(target: Info, source: Info): Info {
+  function mergeConfigConcatArrays(target: Info, source: Info): Info {
     const merged = mergeDeep(target, source)
     if (target.plugin && source.plugin) {
       merged.plugin = Array.from(new Set([...target.plugin, ...source.plugin]))
@@ -91,7 +96,7 @@ export namespace Config {
         const remoteConfig = wellknown.config ?? {}
         // Add $schema to prevent load() from trying to write back to a non-existent file
         if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
-        result = merge(
+        result = mergeConfigConcatArrays(
           result,
           await load(JSON.stringify(remoteConfig), {
             dir: path.dirname(`${key}/.well-known/opencode`),
@@ -107,21 +112,18 @@ export namespace Config {
     }
 
     // Global user config overrides remote config.
-    result = merge(result, await global())
+    result = mergeConfigConcatArrays(result, await global())
 
     // Custom config path overrides global config.
     if (Flag.OPENCODE_CONFIG) {
-      result = merge(result, await loadFile(Flag.OPENCODE_CONFIG))
+      result = mergeConfigConcatArrays(result, await loadFile(Flag.OPENCODE_CONFIG))
       log.debug("loaded custom config", { path: Flag.OPENCODE_CONFIG })
     }
 
     // Project config overrides global and remote config.
     if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-      for (const file of ["opencode.jsonc", "opencode.json"]) {
-        const found = await Filesystem.findUp(file, Instance.directory, Instance.worktree)
-        for (const resolved of found.toReversed()) {
-          result = merge(result, await loadFile(resolved))
-        }
+      for (const file of await ConfigPaths.projectFiles("opencode", Instance.directory, Instance.worktree)) {
+        result = mergeConfigConcatArrays(result, await loadFile(file))
       }
     }
 
@@ -129,31 +131,10 @@ export namespace Config {
     result.mode = result.mode || {}
     result.plugin = result.plugin || []
 
-    const directories = [
-      Global.Path.config,
-      // Only scan project .opencode/ directories when project discovery is enabled
-      ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
-        ? await Array.fromAsync(
-            Filesystem.up({
-              targets: [".opencode"],
-              start: Instance.directory,
-              stop: Instance.worktree,
-            }),
-          )
-        : []),
-      // Always scan ~/.opencode/ (user home directory)
-      ...(await Array.fromAsync(
-        Filesystem.up({
-          targets: [".opencode"],
-          start: Global.Path.home,
-          stop: Global.Path.home,
-        }),
-      )),
-    ]
+    const directories = await ConfigPaths.directories(Instance.directory, Instance.worktree)
 
     // .opencode directory config overrides (project and global) config sources.
     if (Flag.OPENCODE_CONFIG_DIR) {
-      directories.push(Flag.OPENCODE_CONFIG_DIR)
       log.debug("loading config from OPENCODE_CONFIG_DIR", { path: Flag.OPENCODE_CONFIG_DIR })
     }
 
@@ -163,7 +144,7 @@ export namespace Config {
       if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
         for (const file of ["opencode.jsonc", "opencode.json"]) {
           log.debug(`loading config from ${path.join(dir, file)}`)
-          result = merge(result, await loadFile(path.join(dir, file)))
+          result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
           // to satisfy the type checker
           result.agent ??= {}
           result.mode ??= {}
@@ -182,11 +163,15 @@ export namespace Config {
       result.agent = mergeDeep(result.agent, await loadAgent(dir))
       result.agent = mergeDeep(result.agent, await loadMode(dir))
       result.plugin.push(...(await loadPlugin(dir)))
+
+      // Load agents from npm packages in node_modules
+      const nodeModulesDir = path.join(dir, "node_modules")
+      result.agent = mergeDeep(result.agent, await loadPackageAgents(nodeModulesDir))
     }
 
     // Inline config content overrides all non-managed config sources.
     if (process.env.OPENCODE_CONFIG_CONTENT) {
-      result = merge(
+      result = mergeConfigConcatArrays(
         result,
         await load(process.env.OPENCODE_CONFIG_CONTENT, {
           dir: Instance.directory,
@@ -200,11 +185,15 @@ export namespace Config {
     // Kept separate from directories array to avoid write operations when installing plugins
     // which would fail on system directories requiring elevated permissions
     // This way it only loads config file and not skills/plugins/commands
-    if (existsSync(managedConfigDir)) {
+    if (existsSync(managedDir)) {
       for (const file of ["opencode.jsonc", "opencode.json"]) {
-        result = merge(result, await loadFile(path.join(managedConfigDir, file)))
+        result = mergeConfigConcatArrays(result, await loadFile(path.join(managedDir, file)))
       }
     }
+
+    // Also scan project root node_modules for package agents
+    const projectNodeModules = path.join(Instance.worktree, "node_modules")
+    result.agent = mergeDeep(result.agent ?? {}, await loadPackageAgents(projectNodeModules))
 
     // Migrate deprecated mode field to agent field
     for (const [name, mode] of Object.entries(result.mode ?? {})) {
@@ -240,8 +229,6 @@ export namespace Config {
     if (result.autoshare === true && !result.share) {
       result.share = "auto"
     }
-
-    if (!result.keybinds) result.keybinds = Info.shape.keybinds.parse({})
 
     // Apply flag overrides for compaction settings
     if (Flag.OPENCODE_DISABLE_AUTOCOMPACT) {
@@ -289,7 +276,7 @@ export namespace Config {
       [
         "install",
         // TODO: get rid of this case (see: https://github.com/oven-sh/bun/issues/19936)
-        ...(proxied() ? ["--no-cache"] : []),
+        ...(proxied() || process.env.CI ? ["--no-cache"] : []),
       ],
       { cwd: dir },
     ).catch((err) => {
@@ -306,7 +293,7 @@ export namespace Config {
     }
   }
 
-  async function needsInstall(dir: string) {
+  export async function needsInstall(dir: string) {
     // Some config dirs may be read-only.
     // Installing deps there will fail; skip installation in that case.
     const writable = await isWritable(dir)
@@ -532,6 +519,206 @@ export namespace Config {
     }
 
     return uniqueSpecifiers.toReversed()
+  }
+
+  const PACKAGE_PROMPT_GLOB = new Bun.Glob("prompts/**/*.md")
+  const PACKAGE_AGENT_GLOB = new Bun.Glob("agent/**/*.md")
+
+  /**
+   * Load agents from installed npm packages that contain prompts/ or agent/ directories.
+   * Scans node_modules for packages with prompt files (e.g., @openpets/gitlab).
+   */
+  export async function loadPackageAgents(nodeModulesDir: string): Promise<Record<string, Agent>> {
+    const result: Record<string, Agent> = {}
+
+    const nodeModulesPath = path.resolve(nodeModulesDir)
+    const dirExists = await fs
+      .stat(nodeModulesPath)
+      .then((s) => s.isDirectory())
+      .catch(() => false)
+    if (!dirExists) {
+      return result
+    }
+
+    // Scan for packages with prompts
+    const packages = await discoverPromptPackages(nodeModulesPath)
+
+    for (const pkg of packages) {
+      const agents = await loadAgentsFromPackage(pkg)
+      for (const [name, agent] of Object.entries(agents)) {
+        result[name] = agent
+      }
+    }
+
+    return result
+  }
+
+  interface PromptPackage {
+    name: string
+    path: string
+    promptsDir?: string
+    agentDir?: string
+  }
+
+  async function discoverPromptPackages(nodeModulesPath: string): Promise<PromptPackage[]> {
+    const packages: PromptPackage[] = []
+
+    const entries = await fs.readdir(nodeModulesPath, { withFileTypes: true }).catch(() => [])
+
+    for (const entry of entries) {
+      const entryPath = path.join(nodeModulesPath, entry.name)
+      // Check if it's a directory (following symlinks since bun uses symlinks in node_modules)
+      const isDir = await fs
+        .stat(entryPath)
+        .then((s) => s.isDirectory())
+        .catch(() => false)
+      if (!isDir) continue
+
+      // Handle scoped packages (@scope/package)
+      if (entry.name.startsWith("@")) {
+        const scopePath = entryPath
+        const scopedEntries = await fs.readdir(scopePath, { withFileTypes: true }).catch(() => [])
+
+        for (const scopedEntry of scopedEntries) {
+          const scopedPath = path.join(scopePath, scopedEntry.name)
+          // Check if it's a directory (following symlinks)
+          const isScopedDir = await fs
+            .stat(scopedPath)
+            .then((s) => s.isDirectory())
+            .catch(() => false)
+          if (!isScopedDir) continue
+
+          const pkg = await checkPackageForPrompts(scopedPath, `${entry.name}/${scopedEntry.name}`)
+          if (pkg) packages.push(pkg)
+        }
+      } else {
+        // Regular package
+        const pkg = await checkPackageForPrompts(entryPath, entry.name)
+        if (pkg) packages.push(pkg)
+      }
+    }
+
+    return packages
+  }
+
+  async function checkPackageForPrompts(pkgPath: string, pkgName: string): Promise<PromptPackage | null> {
+    const pkgJsonPath = path.join(pkgPath, "package.json")
+    const pkgJsonFile = Bun.file(pkgJsonPath)
+
+    if (!(await pkgJsonFile.exists())) return null
+
+    const pkgJson = await pkgJsonFile.json().catch(() => null)
+    if (!pkgJson) return null
+
+    // Check if package has prompts/** or agent/** in files array
+    const files: string[] = pkgJson.files || []
+    const hasPrompts = files.some((f: string) => f.startsWith("prompts/") || f === "prompts/**/*")
+    const hasAgents = files.some((f: string) => f.startsWith("agent/") || f === "agent/**/*")
+
+    // Also check for actual directories
+    const promptsDir = path.join(pkgPath, "prompts")
+    const agentDir = path.join(pkgPath, "agent")
+
+    const promptsDirExists = await fs
+      .stat(promptsDir)
+      .then(() => true)
+      .catch(() => false)
+    const agentDirExists = await fs
+      .stat(agentDir)
+      .then(() => true)
+      .catch(() => false)
+
+    if (!hasPrompts && !hasAgents && !promptsDirExists && !agentDirExists) return null
+
+    return {
+      name: pkgName,
+      path: pkgPath,
+      promptsDir: promptsDirExists ? promptsDir : undefined,
+      agentDir: agentDirExists ? agentDir : undefined,
+    }
+  }
+
+  async function loadAgentsFromPackage(pkg: PromptPackage): Promise<Record<string, Agent>> {
+    const result: Record<string, Agent> = {}
+
+    // Load from prompts/ directory
+    if (pkg.promptsDir) {
+      for await (const item of PACKAGE_PROMPT_GLOB.scan({
+        absolute: true,
+        followSymlinks: true,
+        dot: true,
+        cwd: pkg.path,
+      })) {
+        const agent = await parsePackagePromptFile(item, pkg)
+        if (agent) {
+          result[agent.name] = agent.config
+        }
+      }
+    }
+
+    // Load from agent/ directory (standard opencode format)
+    if (pkg.agentDir) {
+      for await (const item of PACKAGE_AGENT_GLOB.scan({
+        absolute: true,
+        followSymlinks: true,
+        dot: true,
+        cwd: pkg.path,
+      })) {
+        const md = await ConfigMarkdown.parse(item)
+        if (!md.data) continue
+
+        const relativePath = path.relative(pkg.agentDir, item)
+        const agentName = relativePath.replace(/\.md$/, "").replace(/\//g, "/")
+        const prefixedName = `${pkg.name}/${agentName}`
+
+        const config = {
+          name: prefixedName,
+          ...md.data,
+          prompt: md.content.trim(),
+        }
+        const parsed = Agent.safeParse(config)
+        if (parsed.success) {
+          result[prefixedName] = parsed.data
+        }
+      }
+    }
+
+    return result
+  }
+
+  async function parsePackagePromptFile(
+    filePath: string,
+    pkg: PromptPackage,
+  ): Promise<{ name: string; config: Agent } | null> {
+    const md = await ConfigMarkdown.parse(filePath)
+
+    // Get relative path from prompts/ directory
+    const relativePath = path.relative(pkg.promptsDir!, filePath)
+    const baseName = relativePath.replace(/\.md$/, "").replace(/\//g, "/")
+
+    // Skip README files
+    if (baseName.toLowerCase() === "readme") return null
+
+    // Create agent name with package prefix (e.g., @openpets/gitlab/pr-review)
+    const agentName = `${pkg.name}/${baseName}`
+
+    // Extract frontmatter or use defaults
+    const frontmatter = md.data || {}
+
+    const config: Agent = {
+      description: frontmatter.description || `Prompt from ${pkg.name}: ${baseName}`,
+      prompt: md.content.trim(),
+      mode: frontmatter.mode || "subagent",
+      ...frontmatter,
+    }
+
+    const parsed = Agent.safeParse(config)
+    if (!parsed.success) {
+      log.warn("invalid package prompt", { path: filePath, errors: parsed.error })
+      return null
+    }
+
+    return { name: agentName, config: parsed.data }
   }
 
   export const McpLocal = z
@@ -917,9 +1104,10 @@ export namespace Config {
         .describe("Delete word backward in input"),
       history_previous: z.string().optional().default("up").describe("Previous history item"),
       history_next: z.string().optional().default("down").describe("Next history item"),
-      session_child_cycle: z.string().optional().default("<leader>right").describe("Next child session"),
-      session_child_cycle_reverse: z.string().optional().default("<leader>left").describe("Previous child session"),
-      session_parent: z.string().optional().default("<leader>up").describe("Go to parent session"),
+      session_child_first: z.string().optional().default("<leader>down").describe("Go to first child session"),
+      session_child_cycle: z.string().optional().default("right").describe("Go to next child session"),
+      session_child_cycle_reverse: z.string().optional().default("left").describe("Go to previous child session"),
+      session_parent: z.string().optional().default("up").describe("Go to parent session"),
       terminal_suspend: z.string().optional().default("ctrl+z").describe("Suspend terminal"),
       terminal_title_toggle: z.string().optional().default("none").describe("Toggle terminal title"),
       tips_toggle: z.string().optional().default("<leader>h").describe("Toggle tips on home screen"),
@@ -929,20 +1117,6 @@ export namespace Config {
     .meta({
       ref: "KeybindsConfig",
     })
-
-  export const TUI = z.object({
-    scroll_speed: z.number().min(0.001).optional().describe("TUI scroll speed"),
-    scroll_acceleration: z
-      .object({
-        enabled: z.boolean().describe("Enable scroll acceleration"),
-      })
-      .optional()
-      .describe("Scroll acceleration settings"),
-    diff_style: z
-      .enum(["auto", "stacked"])
-      .optional()
-      .describe("Control diff rendering style: 'auto' adapts to terminal width, 'stacked' always shows single column"),
-  })
 
   export const Server = z
     .object({
@@ -1018,10 +1192,7 @@ export namespace Config {
   export const Info = z
     .object({
       $schema: z.string().optional().describe("JSON schema reference for configuration validation"),
-      theme: z.string().optional().describe("Theme name to use for the interface"),
-      keybinds: Keybinds.optional().describe("Custom keybind configurations"),
       logLevel: Log.Level.optional().describe("Log level"),
-      tui: TUI.optional().describe("TUI specific settings"),
       server: Server.optional().describe("Server configuration for opencode serve and web commands"),
       command: z
         .record(z.string(), Command)
@@ -1241,86 +1412,37 @@ export namespace Config {
     return result
   })
 
+  export const { readFile } = ConfigPaths
+
   async function loadFile(filepath: string): Promise<Info> {
     log.info("loading", { path: filepath })
-    let text = await Filesystem.readText(filepath).catch((err: any) => {
-      if (err.code === "ENOENT") return
-      throw new JsonError({ path: filepath }, { cause: err })
-    })
+    const text = await readFile(filepath)
     if (!text) return {}
     return load(text, { path: filepath })
   }
 
   async function load(text: string, options: { path: string } | { dir: string; source: string }) {
     const original = text
-    const configDir = "path" in options ? path.dirname(options.path) : options.dir
     const source = "path" in options ? options.path : options.source
     const isFile = "path" in options
+    const data = await ConfigPaths.parseText(
+      text,
+      "path" in options ? options.path : { source: options.source, dir: options.dir },
+    )
 
-    text = text.replace(/\{env:([^}]+)\}/g, (_, varName) => {
-      return process.env[varName] || ""
-    })
+    const normalized = (() => {
+      if (!data || typeof data !== "object" || Array.isArray(data)) return data
+      const copy = { ...(data as Record<string, unknown>) }
+      const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
+      if (!hadLegacy) return copy
+      delete copy.theme
+      delete copy.keybinds
+      delete copy.tui
+      log.warn("tui keys in opencode config are deprecated; move them to tui.json", { path: source })
+      return copy
+    })()
 
-    const fileMatches = text.match(/\{file:[^}]+\}/g)
-    if (fileMatches) {
-      const lines = text.split("\n")
-
-      for (const match of fileMatches) {
-        const lineIndex = lines.findIndex((line) => line.includes(match))
-        if (lineIndex !== -1 && lines[lineIndex].trim().startsWith("//")) {
-          continue
-        }
-        let filePath = match.replace(/^\{file:/, "").replace(/\}$/, "")
-        if (filePath.startsWith("~/")) {
-          filePath = path.join(os.homedir(), filePath.slice(2))
-        }
-        const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(configDir, filePath)
-        const fileContent = (
-          await Bun.file(resolvedPath)
-            .text()
-            .catch((error) => {
-              const errMsg = `bad file reference: "${match}"`
-              if (error.code === "ENOENT") {
-                throw new InvalidError(
-                  {
-                    path: source,
-                    message: errMsg + ` ${resolvedPath} does not exist`,
-                  },
-                  { cause: error },
-                )
-              }
-              throw new InvalidError({ path: source, message: errMsg }, { cause: error })
-            })
-        ).trim()
-        text = text.replace(match, () => JSON.stringify(fileContent).slice(1, -1))
-      }
-    }
-
-    const errors: JsoncParseError[] = []
-    const data = parseJsonc(text, errors, { allowTrailingComma: true })
-    if (errors.length) {
-      const lines = text.split("\n")
-      const errorDetails = errors
-        .map((e) => {
-          const beforeOffset = text.substring(0, e.offset).split("\n")
-          const line = beforeOffset.length
-          const column = beforeOffset[beforeOffset.length - 1].length + 1
-          const problemLine = lines[line - 1]
-
-          const error = `${printParseErrorCode(e.error)} at line ${line}, column ${column}`
-          if (!problemLine) return error
-
-          return `${error}\n   Line ${line}: ${problemLine}\n${"".padStart(column + 9)}^`
-        })
-        .join("\n")
-
-      throw new JsonError({
-        path: source,
-        message: `\n--- JSONC Input ---\n${text}\n--- Errors ---\n${errorDetails}\n--- End ---`,
-      })
-    }
-
-    const parsed = Info.safeParse(data)
+    const parsed = Info.safeParse(normalized)
     if (parsed.success) {
       if (!parsed.data.$schema && isFile) {
         parsed.data.$schema = "https://opencode.ai/config.json"
@@ -1353,13 +1475,7 @@ export namespace Config {
       issues: parsed.error.issues,
     })
   }
-  export const JsonError = NamedError.create(
-    "ConfigJsonError",
-    z.object({
-      path: z.string(),
-      message: z.string().optional(),
-    }),
-  )
+  export const { JsonError, InvalidError } = ConfigPaths
 
   export const ConfigDirectoryTypoError = NamedError.create(
     "ConfigDirectoryTypoError",
@@ -1367,15 +1483,6 @@ export namespace Config {
       path: z.string(),
       dir: z.string(),
       suggestion: z.string(),
-    }),
-  )
-
-  export const InvalidError = NamedError.create(
-    "ConfigInvalidError",
-    z.object({
-      path: z.string(),
-      issues: z.custom<z.core.$ZodIssue[]>().optional(),
-      message: z.string().optional(),
     }),
   )
 

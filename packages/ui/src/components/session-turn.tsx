@@ -1,6 +1,6 @@
 import { AssistantMessage, type FileDiff, Message as MessageType, Part as PartType } from "@opencode-ai/sdk/v2/client"
 import { useData } from "../context"
-import { useDiffComponent } from "../context/diff"
+import { useFileComponent } from "../context/file"
 
 import { Binary } from "@opencode-ai/util/binary"
 import { getDirectory, getFilename } from "@opencode-ai/util/path"
@@ -14,6 +14,7 @@ import { Collapsible } from "./collapsible"
 import { DiffChanges } from "./diff-changes"
 import { Icon } from "./icon"
 import { TextShimmer } from "./text-shimmer"
+import { SessionRetry } from "./session-retry"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
 
@@ -152,7 +153,7 @@ export function SessionTurn(
 ) {
   const data = useData()
   const i18n = useI18n()
-  const diffComponent = useDiffComponent()
+  const fileComponent = useFileComponent()
 
   const emptyMessages: MessageType[] = []
   const emptyParts: PartType[] = []
@@ -332,6 +333,7 @@ export function SessionTurn(
   )
   const showThinking = createMemo(() => {
     if (!working() || !!error()) return false
+    if (status().type === "retry") return false
     if (showReasoningSummaries()) return assistantVisible() === 0
     if (assistantTailVisible() === "text") return false
     return true
@@ -384,6 +386,7 @@ export function SessionTurn(
                     </Show>
                   </div>
                 </Show>
+                <SessionRetry status={status()} show={isLastUserMessage()} />
                 <Show when={edited() > 0 && !working()}>
                   <div data-slot="session-turn-diffs">
                     <Collapsible open={open()} onOpenChange={setOpen} variant="ghost">
@@ -465,7 +468,8 @@ export function SessionTurn(
                                         <Show when={visible()}>
                                           <div data-slot="session-turn-diff-view" data-scrollable>
                                             <Dynamic
-                                              component={diffComponent}
+                                              component={fileComponent}
+                                              mode="diff"
                                               before={{ name: diff.file, contents: diff.before }}
                                               after={{ name: diff.file, contents: diff.after }}
                                             />

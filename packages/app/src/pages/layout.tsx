@@ -52,6 +52,7 @@ import { DialogSettings } from "@/components/dialog-settings"
 import { useCommand, type CommandOption } from "@/context/command"
 import { ConstrainDragXAxis } from "@/utils/solid-dnd"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
+import { DialogSelectSession } from "@/components/dialog-select-session"
 import { DialogEditProject } from "@/components/dialog-edit-project"
 import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
@@ -61,11 +62,12 @@ import {
   displayName,
   errorMessage,
   getDraggableId,
+  latestRootSession,
   sortedRootSessions,
   syncWorkspaceOrder,
   workspaceKey,
 } from "./layout/helpers"
-import { collectOpenProjectDeepLinks, deepLinkEvent, drainPendingDeepLinks } from "./layout/deep-links"
+import { collectDeepLinkActions, deepLinkEvent, drainPendingDeepLinks } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
 import {
   LocalWorkspace,
@@ -927,6 +929,13 @@ export default function Layout(props: ParentProps) {
         onSelect: () => openSettings(),
       },
       {
+        id: "session.search.all",
+        title: language.t("command.session.searchAll"),
+        category: language.t("command.category.session"),
+        keybind: "mod+shift+p",
+        onSelect: () => dialog.show(() => <DialogSelectSession />),
+      },
+      {
         id: "session.previous",
         title: language.t("command.session.previous"),
         category: language.t("command.category.session"),
@@ -1062,6 +1071,12 @@ export default function Layout(props: ParentProps) {
     return commands
   })
 
+  onMount(() => {
+    if (!window.__OPENCODE__?.openSessionSearchOnStart) return
+    window.__OPENCODE__.openSessionSearchOnStart = false
+    queueMicrotask(() => command.trigger("session.search.all"))
+  })
+
   function connectProvider() {
     dialog.show(() => <DialogSelectProvider />)
   }
@@ -1093,14 +1108,51 @@ export default function Layout(props: ParentProps) {
     return meta?.worktree ?? directory
   }
 
-  function navigateToProject(directory: string | undefined) {
+  async function navigateToProject(directory: string | undefined) {
     if (!directory) return
     const root = projectRoot(directory)
     server.projects.touch(root)
+    const project = layout.projects.list().find((item) => item.worktree === root)
+    const dirs = Array.from(new Set([root, ...(store.workspaceOrder[root] ?? []), ...(project?.sandboxes ?? [])]))
+    const openSession = async (target: { directory: string; id: string }) => {
+      const resolved = await globalSDK.client.session
+        .get({ sessionID: target.id })
+        .then((x) => x.data)
+        .catch(() => undefined)
+      const next = resolved?.directory ? resolved : target
+      setStore("lastProjectSession", root, { directory: next.directory, id: next.id, at: Date.now() })
+      navigateWithSidebarReset(`/${base64Encode(next.directory)}/session/${next.id}`)
+    }
 
     const projectSession = store.lastProjectSession[root]
     if (projectSession?.id) {
-      navigateWithSidebarReset(`/${base64Encode(projectSession.directory)}/session/${projectSession.id}`)
+      await openSession(projectSession)
+      return
+    }
+
+    const latest = latestRootSession(
+      dirs.map((item) => globalSync.child(item, { bootstrap: false })[0]),
+      Date.now(),
+    )
+    if (latest) {
+      await openSession(latest)
+      return
+    }
+
+    const fetched = latestRootSession(
+      await Promise.all(
+        dirs.map(async (item) => ({
+          path: { directory: item },
+          session: await globalSDK.client.session
+            .list({ directory: item })
+            .then((x) => x.data ?? [])
+            .catch(() => []),
+        })),
+      ),
+      Date.now(),
+    )
+    if (fetched) {
+      await openSession(fetched)
       return
     }
 
@@ -1119,8 +1171,15 @@ export default function Layout(props: ParentProps) {
 
   const handleDeepLinks = (urls: string[]) => {
     if (!server.isLocal()) return
-    for (const directory of collectOpenProjectDeepLinks(urls)) {
-      openProject(directory)
+    for (const action of collectDeepLinkActions(urls)) {
+      if (action.type === "open-project") {
+        openProject(action.directory)
+        continue
+      }
+
+      openProject(action.directory, false)
+      const href = `/${base64Encode(action.directory)}/session/${action.sessionID}`
+      navigateWithSidebarReset(href)
     }
   }
 

@@ -1,29 +1,45 @@
-### Issue for this PR
+## Problem
 
-Closes #
+Briefly describe what this PR fixes. What was broken, confusing, or missing?
 
-### Type of change
+For simple fixes: one sentence is enough.
+For complex features: explain the problem and why it matters.
 
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Refactor / code improvement
-- [ ] Documentation
+Closes #XXXX
 
-### What does this PR do?
+---
 
-Please provide a description of the issue, the changes you made to fix it, and why they work. It is expected that you understand why your changes work and if you do not understand why at least say as much so a maintainer knows how much to value the PR.
+## Changes
 
-**If you paste a large clearly AI generated description here your PR may be IGNORED or CLOSED!**
+**For simple fixes**: 1-2 bullet points maximum
 
-### How did you verify your code works?
+- Fix specific issue in `ComponentName`
+- Add missing feature to `ModuleName`
 
-### Screenshots / recordings
+**For complex features**: concise breakdown
 
-_If this is a UI change, please include a screenshot or recording._
+- `file.ext`: What changed
+- `file.ext`: What changed
+- Add tests for coverage
 
-### Checklist
+---
 
-- [ ] I have tested my changes locally
-- [ ] I have not included unrelated changes in this PR
+## Testing
 
-_If you do not follow this template your PR will be automatically rejected._
+```bash
+# Test commands to verify this PR
+bun test path/to/test.test.ts
+# If applicable: run examples, manual testing steps, etc.
+```
+
+---
+
+### Additional Context (only if needed)
+
+**Breaking changes**: What users need to know and migration steps
+
+**Performance impact**: Before/after metrics if relevant
+
+**Configuration**: New options or defaults
+
+**Design decisions**: Why this approach over alternatives

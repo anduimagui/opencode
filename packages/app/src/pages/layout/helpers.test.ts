@@ -1,10 +1,41 @@
 import { describe, expect, test } from "bun:test"
-import { collectOpenProjectDeepLinks, drainPendingDeepLinks, parseDeepLink } from "./deep-links"
-import { displayName, errorMessage, getDraggableId, syncWorkspaceOrder, workspaceKey } from "./helpers"
+import { type Session } from "@opencode-ai/sdk/v2/client"
+import { collectDeepLinkActions, drainPendingDeepLinks, parseDeepLink } from "./deep-links"
+import {
+  displayName,
+  errorMessage,
+  getDraggableId,
+  hasProjectPermissions,
+  latestRootSession,
+  syncWorkspaceOrder,
+  workspaceKey,
+} from "./helpers"
+
+const session = (input: Partial<Session> & Pick<Session, "id" | "directory">) =>
+  ({
+    title: "",
+    version: "v2",
+    parentID: undefined,
+    messageCount: 0,
+    permissions: { session: {}, share: {} },
+    time: { created: 0, updated: 0, archived: undefined },
+    ...input,
+  }) as Session
 
 describe("layout deep links", () => {
   test("parses open-project deep links", () => {
-    expect(parseDeepLink("opencode://open-project?directory=/tmp/demo")).toBe("/tmp/demo")
+    expect(parseDeepLink("opencode://open-project?directory=/tmp/demo")).toEqual({
+      type: "open-project",
+      directory: "/tmp/demo",
+    })
+  })
+
+  test("parses open-session deep links", () => {
+    expect(parseDeepLink("opencode://open-session?directory=/tmp/demo&id=session-1")).toEqual({
+      type: "open-session",
+      directory: "/tmp/demo",
+      sessionID: "session-1",
+    })
   })
 
   test("ignores non-project deep links", () => {
@@ -21,7 +52,10 @@ describe("layout deep links", () => {
     const original = Object.getOwnPropertyDescriptor(URL, "canParse")
     Object.defineProperty(URL, "canParse", { configurable: true, value: undefined })
     try {
-      expect(parseDeepLink("opencode://open-project?directory=/tmp/demo")).toBe("/tmp/demo")
+      expect(parseDeepLink("opencode://open-project?directory=/tmp/demo")).toEqual({
+        type: "open-project",
+        directory: "/tmp/demo",
+      })
     } finally {
       if (original) Object.defineProperty(URL, "canParse", original)
       if (!original) Reflect.deleteProperty(URL, "canParse")
@@ -33,13 +67,23 @@ describe("layout deep links", () => {
     expect(parseDeepLink("opencode://open-project?directory=")).toBeUndefined()
   })
 
-  test("collects only valid open-project directories", () => {
-    const result = collectOpenProjectDeepLinks([
+  test("ignores open-session deep links missing required params", () => {
+    expect(parseDeepLink("opencode://open-session?directory=/tmp/demo")).toBeUndefined()
+    expect(parseDeepLink("opencode://open-session?id=session-1")).toBeUndefined()
+  })
+
+  test("collects only valid deep-link actions", () => {
+    const result = collectDeepLinkActions([
       "opencode://open-project?directory=/a",
       "opencode://other?directory=/b",
+      "opencode://open-session?directory=/a&id=s1",
       "opencode://open-project?directory=/c",
     ])
-    expect(result).toEqual(["/a", "/c"])
+    expect(result).toEqual([
+      { type: "open-project", directory: "/a" },
+      { type: "open-session", directory: "/a", sessionID: "s1" },
+      { type: "open-project", directory: "/c" },
+    ])
   })
 
   test("drains global deep links once", () => {
@@ -71,6 +115,84 @@ describe("layout workspace helpers", () => {
   test("keeps local first while preserving known order", () => {
     const result = syncWorkspaceOrder("/root", ["/root", "/b", "/c"], ["/root", "/c", "/a", "/b"])
     expect(result).toEqual(["/root", "/c", "/b"])
+  })
+
+  test("finds the latest root session across workspaces", () => {
+    const result = latestRootSession(
+      [
+        {
+          path: { directory: "/root" },
+          session: [session({ id: "root", directory: "/root", time: { created: 1, updated: 1, archived: undefined } })],
+        },
+        {
+          path: { directory: "/workspace" },
+          session: [
+            session({
+              id: "workspace",
+              directory: "/workspace",
+              time: { created: 2, updated: 2, archived: undefined },
+            }),
+          ],
+        },
+      ],
+      120_000,
+    )
+
+    expect(result?.id).toBe("workspace")
+  })
+
+  test("detects project permissions with a filter", () => {
+    const result = hasProjectPermissions(
+      {
+        root: [{ id: "perm-root" }, { id: "perm-hidden" }],
+        child: [{ id: "perm-child" }],
+      },
+      (item) => item.id === "perm-child",
+    )
+
+    expect(result).toBe(true)
+  })
+
+  test("ignores project permissions filtered out", () => {
+    const result = hasProjectPermissions(
+      {
+        root: [{ id: "perm-root" }],
+      },
+      () => false,
+    )
+
+    expect(result).toBe(false)
+  })
+
+  test("ignores archived and child sessions when finding latest root session", () => {
+    const result = latestRootSession(
+      [
+        {
+          path: { directory: "/workspace" },
+          session: [
+            session({
+              id: "archived",
+              directory: "/workspace",
+              time: { created: 10, updated: 10, archived: 10 },
+            }),
+            session({
+              id: "child",
+              directory: "/workspace",
+              parentID: "parent",
+              time: { created: 20, updated: 20, archived: undefined },
+            }),
+            session({
+              id: "root",
+              directory: "/workspace",
+              time: { created: 30, updated: 30, archived: undefined },
+            }),
+          ],
+        },
+      ],
+      120_000,
+    )
+
+    expect(result?.id).toBe("root")
   })
 
   test("extracts draggable id safely", () => {
