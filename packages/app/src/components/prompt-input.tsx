@@ -314,7 +314,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const isFocused = createFocusSignal(() => editorRef)
   const escBlur = () => platform.platform === "desktop" && platform.os === "macos"
 
-  const pick = () => fileInputRef?.click()
+  const pick = () => {
+    if (platform.platform === "desktop" && platform.openFilePickerDialog) {
+      void pickDesktopFiles()
+      return
+    }
+    fileInputRef?.click()
+  }
 
   const setMode = (mode: "normal" | "shell") => {
     setStore("mode", mode)
@@ -768,15 +774,34 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     const selection = window.getSelection()
     if (!selection) return false
 
+    const moveCursorToEnd = () => {
+      const range = document.createRange()
+      range.selectNodeContents(editorRef)
+      range.collapse(false)
+      selection.removeAllRanges()
+      selection.addRange(range)
+    }
+
     if (selection.rangeCount === 0 || !editorRef.contains(selection.anchorNode)) {
       editorRef.focus()
       const cursor = prompt.cursor() ?? promptLength(prompt.current())
       setCursorPosition(editorRef, cursor)
     }
 
+    if (selection.rangeCount === 0 || !editorRef.contains(selection.anchorNode)) {
+      editorRef.focus()
+      moveCursorToEnd()
+    }
+
     if (selection.rangeCount === 0) return false
     const range = selection.getRangeAt(0)
-    if (!editorRef.contains(range.startContainer)) return false
+    if (!editorRef.contains(range.startContainer)) {
+      moveCursorToEnd()
+    }
+
+    if (selection.rangeCount === 0) return false
+    const active = selection.getRangeAt(0)
+    if (!editorRef.contains(active.startContainer)) return false
 
     if (part.type === "file" || part.type === "agent") {
       const cursorPosition = getCursorPosition(editorRef)
@@ -791,32 +816,32 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
       if (atMatch) {
         const start = atMatch.index ?? cursorPosition - atMatch[0].length
-        setRangeEdge(editorRef, range, "start", start)
-        setRangeEdge(editorRef, range, "end", cursorPosition)
+        setRangeEdge(editorRef, active, "start", start)
+        setRangeEdge(editorRef, active, "end", cursorPosition)
       }
 
-      range.deleteContents()
-      range.insertNode(gap)
-      range.insertNode(pill)
-      range.setStartAfter(gap)
-      range.collapse(true)
+      active.deleteContents()
+      active.insertNode(gap)
+      active.insertNode(pill)
+      active.setStartAfter(gap)
+      active.collapse(true)
       selection.removeAllRanges()
-      selection.addRange(range)
+      selection.addRange(active)
     }
 
     if (part.type === "text") {
       const fragment = createTextFragment(part.content)
       const last = fragment.lastChild
-      range.deleteContents()
-      range.insertNode(fragment)
+      active.deleteContents()
+      active.insertNode(fragment)
       if (last) {
         if (last.nodeType === Node.TEXT_NODE) {
           const text = last.textContent ?? ""
           if (text === "\u200B") {
-            range.setStart(last, 0)
+            active.setStart(last, 0)
           }
           if (text !== "\u200B") {
-            range.setStart(last, text.length)
+            active.setStart(last, text.length)
           }
         }
         if (last.nodeType !== Node.TEXT_NODE) {
@@ -827,20 +852,36 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             const placeholder = next && emptyText ? next : document.createTextNode("\u200B")
             if (!next) last.parentNode?.insertBefore(placeholder, null)
             placeholder.textContent = "\u200B"
-            range.setStart(placeholder, 0)
+            active.setStart(placeholder, 0)
           } else {
-            range.setStartAfter(last)
+            active.setStartAfter(last)
           }
         }
       }
-      range.collapse(true)
+      active.collapse(true)
       selection.removeAllRanges()
-      selection.addRange(range)
+      selection.addRange(active)
     }
 
     handleInput()
     closePopover()
     return true
+  }
+
+  const insertFileReference = (path: string) => {
+    const value = path.trim()
+    if (!value) return
+    addPart({ type: "file", path: value, content: "@" + value, start: 0, end: 0 })
+  }
+
+  const pickDesktopFiles = async () => {
+    const result = await platform.openFilePickerDialog?.({
+      title: language.t("prompt.action.attachFile"),
+      multiple: true,
+    })
+    if (!result) return
+    const paths = Array.isArray(result) ? result : [result]
+    Array.from(new Set(paths)).forEach(insertFileReference)
   }
 
   const addToHistory = (prompt: Prompt, mode: "normal" | "shell") => {
@@ -1138,7 +1179,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               classList={{
                 "select-text": true,
                 "w-full pl-3 pr-2 pt-2 pb-11 text-14-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
-                "[&_[data-type=file]]:text-syntax-property": true,
+                "[&_[data-type=file]]:text-text-strong": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
                 "font-mono!": store.mode === "shell",
               }}

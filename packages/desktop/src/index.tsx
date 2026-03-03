@@ -31,6 +31,7 @@ import { UPDATER_ENABLED } from "./updater"
 import { webviewZoom } from "./webview-zoom"
 import "./styles.css"
 import { Channel } from "@tauri-apps/api/core"
+import { listen } from "@tauri-apps/api/event"
 import { commands, ServerReadyData, type InitStep } from "./bindings"
 import { createMenu } from "./menu"
 
@@ -44,6 +45,7 @@ void initI18n()
 let update: Update | null = null
 
 const deepLinkEvent = "opencode:deep-link"
+const nativeDropEvent = "opencode:native-file-drop"
 
 const emitDeepLinks = (urls: string[]) => {
   if (urls.length === 0) return
@@ -96,10 +98,12 @@ const createPlatform = (): Platform => {
     },
 
     async openFilePickerDialog(opts) {
+      const defaultPath = await wslHome()
       const result = await open({
         directory: false,
         multiple: opts?.multiple ?? false,
         title: opts?.title ?? t("desktop.dialog.chooseFile"),
+        defaultPath,
       })
       return handleWslPicker(result)
     },
@@ -442,7 +446,48 @@ render(() => {
 
   onMount(() => {
     document.addEventListener("click", handleClick)
+
+    let cancelled = false
+    let unlistenNative: undefined | (() => void)
+    let unlistenDrop: undefined | (() => void)
+
+    void listen<{ paths?: string[] }>(nativeDropEvent, (event) => {
+      const paths = event.payload?.paths ?? []
+      if (paths.length === 0) return
+      if (import.meta.env.DEV) console.info("[desktop-drop] native drop", { paths })
+      window.dispatchEvent(new CustomEvent(nativeDropEvent, { detail: { paths } }))
+    })
+      .then((unlisten) => {
+        if (cancelled) {
+          unlisten()
+          return
+        }
+        unlistenNative = unlisten
+      })
+      .catch(() => undefined)
+
+    // Fallback in case native event bridge is unavailable.
+    void getCurrentWindow()
+      .onDragDropEvent((event) => {
+        if (event.payload.type !== "drop") return
+        const paths = event.payload.paths
+        if (paths.length === 0) return
+        if (import.meta.env.DEV) console.info("[desktop-drop] native drop fallback", { paths })
+        window.dispatchEvent(new CustomEvent(nativeDropEvent, { detail: { paths } }))
+      })
+      .then((unlisten) => {
+        if (cancelled) {
+          unlisten()
+          return
+        }
+        unlistenDrop = unlisten
+      })
+      .catch(() => undefined)
+
     onCleanup(() => {
+      cancelled = true
+      unlistenNative?.()
+      unlistenDrop?.()
       document.removeEventListener("click", handleClick)
     })
   })

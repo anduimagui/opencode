@@ -3,7 +3,7 @@ use crate::{
     server::get_wsl_config,
 };
 use std::{ops::Deref, time::Duration};
-use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_window_state::AppHandleExt;
 use tokio::sync::mpsc;
 
@@ -54,7 +54,6 @@ impl MainWindow {
             decorations,
         )
         .title("OpenCode")
-        .disable_drag_drop_handler()
         .zoom_hotkeys_enabled(false)
         .visible(true)
         .maximized(true)
@@ -65,6 +64,9 @@ impl MainWindow {
             window.__OPENCODE__.wsl = {wsl_enabled};
           "#
         ));
+
+        #[cfg(target_os = "windows")]
+        let window_builder = window_builder.disable_drag_drop_handler();
 
         let window = window_builder.build()?;
 
@@ -84,10 +86,28 @@ impl MainWindow {
 }
 
 fn setup_window_state_listener(app: &AppHandle, window: &WebviewWindow) {
+    #[derive(Clone, serde::Serialize)]
+    struct NativeDropPayload {
+        paths: Vec<String>,
+    }
+
     let (tx, mut rx) = mpsc::channel::<()>(1);
+    let emit = window.clone();
 
     window.on_window_event(move |event| {
-        use tauri::WindowEvent;
+        use tauri::{DragDropEvent, WindowEvent};
+
+        if let WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) = event {
+            let payload = NativeDropPayload {
+                paths: paths
+                    .iter()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect(),
+            };
+            let _ = emit.emit("opencode:native-file-drop", payload);
+            return;
+        }
+
         if !matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
             return;
         }
