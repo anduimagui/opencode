@@ -924,6 +924,7 @@ export function Session() {
       keybind: "session_parent",
       category: "Session",
       hidden: true,
+      enabled: !!session()?.parentID,
       onSelect: childSessionHandler((dialog) => {
         const parentID = session()?.parentID
         if (parentID) {
@@ -941,6 +942,7 @@ export function Session() {
       keybind: "session_child_cycle",
       category: "Session",
       hidden: true,
+      enabled: !!session()?.parentID,
       onSelect: childSessionHandler((dialog) => {
         moveChild(1)
         dialog.clear()
@@ -952,6 +954,7 @@ export function Session() {
       keybind: "session_child_cycle_reverse",
       category: "Session",
       hidden: true,
+      enabled: !!session()?.parentID,
       onSelect: childSessionHandler((dialog) => {
         moveChild(-1)
         dialog.clear()

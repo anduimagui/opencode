@@ -439,10 +439,22 @@ render(() => {
     }
   }
 
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault()
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault()
+  }
+
   onMount(() => {
     document.addEventListener("click", handleClick)
+    window.addEventListener("dragover", handleDragOver)
+    window.addEventListener("drop", handleDrop)
     onCleanup(() => {
       document.removeEventListener("click", handleClick)
+      window.removeEventListener("dragover", handleDragOver)
+      window.removeEventListener("drop", handleDrop)
     })
   })
 
