@@ -578,6 +578,7 @@ export const dict = {
   "session.header.open.ariaLabel": "Open in {{app}}",
   "session.header.open.menu": "Open options",
   "session.header.open.copyPath": "Copy path",
+  "session.header.open.copySessionID": "Copy session ID",
 
   "status.popover.trigger": "Status",
   "status.popover.ariaLabel": "Server configurations",
