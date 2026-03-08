@@ -4,16 +4,18 @@ export type DeepLinkAction =
   | { type: "open-project"; directory: string }
   | { type: "open-session"; directory: string; sessionID: string }
 
-export const parseDeepLink = (input: string): DeepLinkAction | undefined => {
+const parseUrl = (input: string) => {
   if (!input.startsWith("opencode://")) return
   if (typeof URL.canParse === "function" && !URL.canParse(input)) return
-  const url = (() => {
-    try {
-      return new URL(input)
-    } catch {
-      return undefined
-    }
-  })()
+  try {
+    return new URL(input)
+  } catch {
+    return
+  }
+}
+
+export const parseDeepLink = (input: string) => {
+  const url = parseUrl(input)
   if (!url) return
 
   if (url.hostname === "open-project") {
@@ -38,6 +40,24 @@ export const parseDeepLink = (input: string): DeepLinkAction | undefined => {
 
 export const collectDeepLinkActions = (urls: string[]) =>
   urls.map(parseDeepLink).filter((action): action is DeepLinkAction => !!action)
+
+export const parseNewSessionDeepLink = (input: string) => {
+  const url = parseUrl(input)
+  if (!url) return
+  if (url.hostname !== "new-session") return
+  const directory = url.searchParams.get("directory")
+  if (!directory) return
+  const prompt = url.searchParams.get("prompt") || undefined
+  if (!prompt) return { directory }
+  return { directory, prompt }
+}
+
+export const collectNewSessionDeepLinks = (urls: string[]) =>
+  urls.reduce<Array<{ directory: string; prompt?: string }>>((list, url) => {
+    const link = parseNewSessionDeepLink(url)
+    if (link) list.push(link)
+    return list
+  }, [])
 
 type OpenCodeWindow = Window & {
   __OPENCODE__?: {

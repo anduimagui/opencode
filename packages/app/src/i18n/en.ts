@@ -32,6 +32,7 @@ export const dict = {
   "command.session.next.unseen": "Next unread session",
   "command.session.archive": "Archive session",
   "command.session.searchAll": "Search all sessions",
+  "command.session.unarchive": "Unarchive session",
 
   "command.palette": "Command palette",
 
@@ -453,6 +454,8 @@ export const dict = {
   "toast.session.unshare.success.description": "Session unshared successfully!",
   "toast.session.unshare.failed.title": "Failed to unshare session",
   "toast.session.unshare.failed.description": "An error occurred while unsharing the session",
+  "toast.session.archive.success.title": "Session archived",
+  "toast.session.archive.success.description": "Use Undo to restore it.",
 
   "toast.session.listFailed.title": "Failed to load sessions for {{project}}",
   "toast.project.reloadFailed.title": "Failed to reload {{project}}",
@@ -524,11 +527,13 @@ export const dict = {
   "session.review.change.other": "Changes",
   "session.review.loadingChanges": "Loading changes...",
   "session.review.empty": "No changes in this session yet",
-  "session.review.noVcs": "No git VCS detected, so session changes will not be detected",
+  "session.review.noVcs": "No Git Version Control System detected, changes not displayed",
+  "session.review.noSnapshot": "Snapshot tracking is disabled in config, so session changes are unavailable",
   "session.review.noChanges": "No changes",
 
   "session.files.selectToOpen": "Select a file to open",
   "session.files.all": "All files",
+  "session.files.empty": "No files",
   "session.files.binaryContent": "Binary file (content cannot be displayed)",
 
   "session.messages.renderEarlier": "Render earlier messages",
@@ -542,6 +547,7 @@ export const dict = {
   "session.todo.collapse": "Collapse",
   "session.todo.expand": "Expand",
 
+  "session.new.title": "Build anything",
   "session.new.worktree.main": "Main branch",
   "session.new.worktree.mainWithBranch": "Main branch ({{branch}})",
   "session.new.worktree.create": "Create new worktree",

@@ -173,6 +173,16 @@ export async function createMenu(trigger: (id: string) => void) {
             text: t("desktop.menu.view.jumpToBottom"),
             accelerator: "Shift+Cmd+ArrowDown",
           }),
+          await MenuItem.new({
+            action: () => trigger("session.archive"),
+            text: t("desktop.menu.view.archiveSession"),
+            accelerator: "Cmd+Shift+Backspace",
+          }),
+          await MenuItem.new({
+            action: () => trigger("session.unarchive"),
+            text: t("desktop.menu.view.unarchiveSession"),
+            accelerator: "Cmd+Shift+U",
+          }),
           await PredefinedMenuItem.new({
             item: "Separator",
           }),
