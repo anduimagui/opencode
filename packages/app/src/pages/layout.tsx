@@ -54,6 +54,7 @@ import { ConstrainDragXAxis } from "@/utils/solid-dnd"
 import { DialogSelectDirectory } from "@/components/dialog-select-directory"
 import { DialogSelectSession } from "@/components/dialog-select-session"
 import { DialogEditProject } from "@/components/dialog-edit-project"
+import { DialogOpenProject } from "@/components/dialog-open-project"
 import { Titlebar } from "@/components/titlebar"
 import { useServer } from "@/context/server"
 import { useLanguage, type Locale } from "@/context/language"
@@ -991,6 +992,13 @@ export default function Layout(props: ParentProps) {
         onSelect: () => chooseProject(),
       },
       {
+        id: "project.clone",
+        title: language.t("command.project.clone"),
+        category: language.t("command.category.project"),
+        keybind: "mod+shift+o",
+        onSelect: () => chooseCloneProject(),
+      },
+      {
         id: "provider.connect",
         title: language.t("command.provider.connect"),
         category: language.t("command.category.provider"),
@@ -1439,6 +1447,37 @@ export default function Layout(props: ParentProps) {
         () => resolve(null),
       )
     }
+  }
+
+  function chooseCloneProject() {
+    if (!(platform.platform === "desktop" && server.isLocal() && platform.cloneGitRepository)) {
+      void chooseProject()
+      return
+    }
+
+    function resolve(result: string | string[] | null) {
+      if (Array.isArray(result)) {
+        for (const directory of result) {
+          openProject(directory, false)
+        }
+        navigateToProject(result[0])
+        return
+      }
+
+      if (result) openProject(result)
+    }
+
+    dialog.show(
+      () => (
+        <DialogOpenProject
+          mode="git"
+          lockMode={true}
+          title={language.t("command.project.clone")}
+          onSelect={(directory) => resolve(directory)}
+        />
+      ),
+      () => resolve(null),
+    )
   }
 
   const deleteWorkspace = async (root: string, directory: string, leaveDeletedWorkspace = false) => {
