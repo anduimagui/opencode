@@ -26,7 +26,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
   const [store, setStore] = createStore({
     name: defaultName(),
     color: props.project.icon?.color || "pink",
-    iconUrl: props.project.icon?.override || "",
+    iconUrl: props.project.icon?.url || props.project.icon?.override || "",
     startup: props.project.commands?.start ?? "",
     saving: false,
     dragOver: false,
@@ -83,9 +83,8 @@ export function DialogEditProject(props: { project: LocalProject }) {
         if (props.project.id && props.project.id !== "global") {
           await globalSDK.client.project.update({
             projectID: props.project.id,
-            directory: props.project.worktree,
             name,
-            icon: { color: store.color, override: store.iconUrl },
+            icon: { color: store.color, url: store.iconUrl },
             commands: { start },
           })
           globalSync.project.icon(props.project.worktree, store.iconUrl || undefined)
