@@ -1104,6 +1104,19 @@ export default function Layout(props: ParentProps) {
         onSelect: () => chooseCloneProject(),
       },
       {
+        id: "project.close",
+        title: language.t("command.project.close"),
+        description: language.t("command.project.close.description"),
+        keywords: "remove workspace",
+        category: language.t("command.category.project"),
+        disabled: !currentProject(),
+        onSelect: () => {
+          const project = currentProject()
+          if (!project) return
+          close(project.worktree)
+        },
+      },
+      {
         id: "provider.connect",
         title: language.t("command.provider.connect"),
         category: language.t("command.category.provider"),
@@ -1514,30 +1527,15 @@ export default function Layout(props: ParentProps) {
     })
   }
 
-  function closeProject(directory: string) {
-    const list = layout.projects.list()
-    const index = list.findIndex((x) => x.worktree === directory)
-    const active = currentProject()?.worktree === directory
-    if (index === -1) return
-    const next = list[index + 1]
-
-    if (!active) {
-      layout.projects.close(directory)
-      return
-    }
-
-    if (!next) {
-      layout.projects.close(directory)
-      navigate("/")
-      return
-    }
-
-    navigateWithSidebarReset(`/${base64Encode(next.worktree)}/session`)
-    layout.projects.close(directory)
-    queueMicrotask(() => {
-      void navigateToProject(next.worktree)
+  const close = (directory: string) =>
+    runProjectClose({
+      directory,
+      list: layout.projects.list(),
+      current: currentProject()?.worktree,
+      close: layout.projects.close,
+      go: navigateWithSidebarReset,
+      open: navigateToProject,
     })
-  }
 
   function toggleProjectWorkspaces(project: LocalProject) {
     const enabled = layout.sidebar.workspaces(project.worktree)()
@@ -2165,7 +2163,7 @@ export default function Layout(props: ParentProps) {
     onProjectFocus: (worktree) => aim.activate(worktree),
     navigateToProject,
     openSidebar: () => layout.sidebar.open(),
-    closeProject,
+    closeProject: close,
     addSubProject,
     removeSubProject,
     hasParentProject: (project) => !!projectParent()[workspaceKey(project.worktree)],
@@ -2310,7 +2308,7 @@ export default function Layout(props: ParentProps) {
                         <DropdownMenu.Item
                           data-action="project-close-menu"
                           data-project={base64Encode(p().worktree)}
-                          onSelect={() => closeProject(p().worktree)}
+                          onSelect={() => close(p().worktree)}
                         >
                           <DropdownMenu.ItemLabel>{language.t("common.close")}</DropdownMenu.ItemLabel>
                         </DropdownMenu.Item>
