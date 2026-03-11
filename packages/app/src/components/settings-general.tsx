@@ -10,7 +10,7 @@ import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
-import { useSettings, monoFontFamily } from "@/context/settings"
+import { type AssistantCopyFormat, useSettings, monoFontFamily } from "@/context/settings"
 import { playSound, SOUND_OPTIONS } from "@/utils/sound"
 import { Link } from "./link"
 
@@ -184,6 +184,12 @@ export const SettingsGeneral: Component = () => {
     })),
   )
 
+  const assistantCopyOptions = createMemo((): { value: AssistantCopyFormat; label: string }[] => [
+    { value: "plain", label: language.t("settings.general.row.assistantCopyFormat.option.plain") },
+    { value: "rich", label: language.t("settings.general.row.assistantCopyFormat.option.rich") },
+    { value: "ask", label: language.t("settings.general.row.assistantCopyFormat.option.ask") },
+  ])
+
   const fontOptions = [
     { value: "ibm-plex-mono", label: "font.option.ibmPlexMono" },
     { value: "cascadia-code", label: "font.option.cascadiaCode" },
@@ -340,6 +346,26 @@ export const SettingsGeneral: Component = () => {
       <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.feed")}</h3>
 
       <div class="bg-surface-raised-base px-4 rounded-lg">
+        <Show when={platform.platform === "desktop"}>
+          <SettingsRow
+            title={language.t("settings.general.row.assistantCopyFormat.title")}
+            description={language.t("settings.general.row.assistantCopyFormat.description")}
+          >
+            <Select
+              data-action="settings-feed-assistant-copy-format"
+              options={assistantCopyOptions()}
+              current={assistantCopyOptions().find((option) => option.value === settings.general.assistantCopyFormat())}
+              value={(option) => option.value}
+              label={(option) => option.label}
+              onSelect={(option) => option && settings.general.setAssistantCopyFormat(option.value)}
+              variant="secondary"
+              size="small"
+              triggerVariant="settings"
+              triggerStyle={{ "min-width": "180px" }}
+            />
+          </SettingsRow>
+        </Show>
+
         <SettingsRow
           title={language.t("settings.general.row.reasoningSummaries.title")}
           description={language.t("settings.general.row.reasoningSummaries.description")}
@@ -659,8 +685,8 @@ interface SettingsRowProps {
 
 const SettingsRow: Component<SettingsRowProps> = (props) => {
   return (
-    <div class="flex flex-wrap items-center justify-between gap-4 py-3 border-b border-border-weak-base last:border-none">
-      <div class="flex flex-col gap-0.5 min-w-0">
+    <div class="flex items-center gap-4 py-3 border-b border-border-weak-base last:border-none">
+      <div class="flex flex-col gap-0.5 min-w-0 flex-1">
         <span class="text-14-medium text-text-strong">{props.title}</span>
         <span class="text-12-regular text-text-weak">{props.description}</span>
       </div>

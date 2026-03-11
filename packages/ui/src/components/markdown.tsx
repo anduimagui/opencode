@@ -5,6 +5,7 @@ import { parseCodeFileRef, type FileRef } from "./markdown-file-ref"
 import DOMPurify from "dompurify"
 import morphdom from "morphdom"
 import { checksum } from "@opencode-ai/util/encode"
+import { serializeMarkdownClipboardHTML } from "./markdown-copy"
 import { ComponentProps, createEffect, createResource, createSignal, onCleanup, splitProps } from "solid-js"
 import { isServer } from "solid-js/web"
 
@@ -247,6 +248,44 @@ function setupCodeCopy(root: HTMLDivElement, labels: CopyLabels, onFileOpen?: (i
   }
 }
 
+function setupSelectionCopy(root: HTMLDivElement) {
+  const handleCopy = (event: ClipboardEvent) => {
+    const clip = event.clipboardData
+    if (!clip) return
+
+    const selection = window.getSelection()
+    if (!selection) return
+    if (selection.rangeCount === 0 || selection.isCollapsed) return
+    const anchor = selection.anchorNode
+    const focus = selection.focusNode
+    if (!anchor || !focus) return
+    if (!root.contains(anchor) || !root.contains(focus)) return
+
+    const text = selection.toString()
+    if (!text) return
+
+    const range = selection.getRangeAt(0)
+    const wrap = document.createElement("div")
+    wrap.appendChild(range.cloneContents())
+    for (const item of wrap.querySelectorAll('[data-slot="markdown-copy-button"]')) {
+      item.remove()
+    }
+
+    const html = serializeMarkdownClipboardHTML(wrap.innerHTML)
+    if (!html) return
+
+    clip.setData("text/plain", text)
+    clip.setData("text/html", html)
+    event.preventDefault()
+  }
+
+  root.addEventListener("copy", handleCopy)
+
+  return () => {
+    root.removeEventListener("copy", handleCopy)
+  }
+}
+
 function touch(key: string, value: Entry) {
   cache.delete(key)
   cache.set(key, value)
@@ -297,12 +336,17 @@ export function Markdown(
 
   let copySetupTimer: ReturnType<typeof setTimeout> | undefined
   let copyCleanup: (() => void) | undefined
+  let selectionCleanup: (() => void) | undefined
 
   createEffect(() => {
     const container = root()
     const content = html()
     if (!container) return
     if (isServer) return
+
+    if (!selectionCleanup) {
+      selectionCleanup = setupSelectionCopy(container)
+    }
 
     if (!content) {
       container.innerHTML = ""
@@ -346,6 +390,7 @@ export function Markdown(
   onCleanup(() => {
     if (copySetupTimer) clearTimeout(copySetupTimer)
     if (copyCleanup) copyCleanup()
+    if (selectionCleanup) selectionCleanup()
   })
 
   return (
