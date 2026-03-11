@@ -250,7 +250,10 @@ export function MessageTimeline(props: {
 }) {
   let touchGesture: number | undefined
 
+  const navigate = useNavigate()
   const params = useParams()
+  const dialog = useDialog()
+  const sdk = useSDK()
   const sync = useSync()
   const settings = useSettings()
   const language = useLanguage()
