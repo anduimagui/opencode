@@ -138,7 +138,6 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       if (same(model, store.quick[other])) setStore("quick", other, undefined)
       if (model) update(model, "show")
     }
-
     const visible = (model: ModelKey) => {
       const key = modelKey(model)
       const state = visibility().get(key)

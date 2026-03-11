@@ -14,6 +14,7 @@ import { Terminal } from "@/components/terminal"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { usePlatform } from "@/context/platform"
 import { useTerminal, type LocalPTY } from "@/context/terminal"
 import { terminalTabLabel } from "@/pages/session/terminal-label"
 import { createSizing, focusTerminalById } from "@/pages/session/helpers"
@@ -25,6 +26,7 @@ export function TerminalPanel() {
   const terminal = useTerminal()
   const language = useLanguage()
   const command = useCommand()
+  const platform = usePlatform()
 
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const view = createMemo(() => layout.view(sessionKey))
@@ -111,6 +113,21 @@ export function TerminalPanel() {
         if (!next || !id) return
         const stop = focus(id)
         onCleanup(stop)
+      },
+    ),
+  )
+
+  createEffect(
+    on(
+      () => opened(),
+      (isOpen, wasOpen) => {
+        if (platform.platform !== "desktop" || !isOpen || wasOpen !== false) return
+        const activeId = terminal.active()
+        if (!activeId) return
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur()
+        }
+        setTimeout(() => focusTerminalById(activeId), 0)
       },
     ),
   )

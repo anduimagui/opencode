@@ -157,7 +157,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           .map(models.find)
           .filter((item): item is NonNullable<typeof item> => !!item),
       )
-
       const quick = createMemo(() =>
         models.quick
           .list()
@@ -242,7 +241,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           { recent: true },
         )
       }
-
       return {
         ready: models.ready,
         current,
