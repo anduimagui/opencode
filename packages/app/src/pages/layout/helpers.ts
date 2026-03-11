@@ -189,4 +189,29 @@ export const createProjectGroups = <T extends { worktree: string; name?: string 
   ]
 }
 
+export const effectiveWorkspacePinnedOrder = (
+  local: string,
+  dirs: string[],
+  persisted?: string[],
+  pinned?: string[],
+) => {
+  const ordered = effectiveWorkspaceOrder(local, dirs, persisted)
+  if (!pinned?.length) return ordered
+
+  const set = new Set(pinned.map((dir) => workspaceKey(dir)))
+  if (set.size === 0) return ordered
+
+  const pinnedDirs = [] as string[]
+  const rest = [] as string[]
+  for (const dir of ordered) {
+    if (set.has(workspaceKey(dir))) {
+      pinnedDirs.push(dir)
+      continue
+    }
+    rest.push(dir)
+  }
+
+  return [...pinnedDirs, ...rest]
+}
+
 export const syncWorkspaceOrder = effectiveWorkspaceOrder

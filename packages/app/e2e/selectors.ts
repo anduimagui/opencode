@@ -57,8 +57,13 @@ export const sessionItemSelector = (sessionID: string) => `${sidebarNavSelector}
 export const workspaceItemSelector = (slug: string) =>
   `${sidebarNavSelector} [data-component="workspace-item"][data-workspace="${slug}"]`
 
+export const workspaceDividerSelector = `${sidebarNavSelector} [data-component="workspace-item"][data-workspace-divider="true"]`
+
 export const workspaceMenuTriggerSelector = (slug: string) =>
   `${sidebarNavSelector} [data-action="workspace-menu"][data-workspace="${slug}"]`
+
+export const workspacePinToggleSelector = (slug: string) =>
+  `[data-action="workspace-pin-toggle"][data-workspace="${slug}"]`
 
 export const workspaceNewSessionSelector = (slug: string) =>
   `${sidebarNavSelector} [data-action="workspace-new-session"][data-workspace="${slug}"]`

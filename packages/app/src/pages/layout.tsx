@@ -62,6 +62,7 @@ import { useServer } from "@/context/server"
 import { useLanguage, type Locale } from "@/context/language"
 import {
   displayName,
+  effectiveWorkspacePinnedOrder,
   effectiveWorkspaceOrder,
   errorMessage,
   getDraggableId,
@@ -96,6 +97,7 @@ export default function Layout(props: ParentProps) {
       expandedProject: undefined as string | undefined,
       projectParent: {} as Record<string, string>,
       workspaceOrder: {} as Record<string, string[]>,
+      workspacePinned: {} as Record<string, string[]>,
       workspaceName: {} as Record<string, string>,
       workspaceBranchName: {} as Record<string, Record<string, string>>,
       workspaceExpanded: {} as Record<string, boolean>,
@@ -1303,6 +1305,11 @@ export default function Layout(props: ParentProps) {
     )
     if (known) return known[0]
 
+    const knownPinned = Object.entries(store.workspacePinned).find(
+      ([root, dirs]) => root === directory || dirs.includes(directory),
+    )
+    if (knownPinned) return knownPinned[0]
+
     const [child] = globalSync.child(directory, { bootstrap: false })
     const id = child.project
     if (!id) return directory
@@ -1493,6 +1500,20 @@ export default function Layout(props: ParentProps) {
     setWorkspaceName(directory, next, projectId, branch)
   }
 
+  const workspacePinned = (root: string, directory: string) => {
+    const key = workspaceKey(directory)
+    return (store.workspacePinned[root] ?? []).some((item) => workspaceKey(item) === key)
+  }
+
+  const setWorkspacePinned = (root: string, directory: string, value: boolean) => {
+    const key = workspaceKey(directory)
+    setStore("workspacePinned", root, (prev) => {
+      const next = (prev ?? []).filter((item) => workspaceKey(item) !== key)
+      if (!value) return next
+      return [directory, ...next]
+    })
+  }
+
   function closeProject(directory: string) {
     const list = layout.projects.list()
     const index = list.findIndex((x) => x.worktree === directory)
@@ -1668,7 +1689,9 @@ export default function Layout(props: ParentProps) {
         project.sandboxes = (project.sandboxes ?? []).filter((sandbox) => sandbox !== directory)
       }),
     )
-    setStore("workspaceOrder", root, (order) => (order ?? []).filter((workspace) => workspace !== directory))
+    const key = workspaceKey(directory)
+    setStore("workspaceOrder", root, (order) => (order ?? []).filter((workspace) => workspaceKey(workspace) !== key))
+    setStore("workspacePinned", root, (pinned) => (pinned ?? []).filter((workspace) => workspaceKey(workspace) !== key))
 
     layout.projects.close(directory)
     layout.projects.open(root)
@@ -2002,7 +2025,12 @@ export default function Layout(props: ParentProps) {
     const extra = directory && directory !== local && !dirs.includes(directory) ? directory : undefined
     const pending = extra ? WorktreeState.get(extra)?.status === "pending" : false
 
-    const ordered = effectiveWorkspaceOrder(local, dirs, store.workspaceOrder[project.worktree])
+    const ordered = effectiveWorkspacePinnedOrder(
+      local,
+      dirs,
+      store.workspaceOrder[project.worktree],
+      store.workspacePinned[project.worktree],
+    )
     if (pending && extra) return [local, extra, ...ordered.filter((item) => item !== local)]
     if (!extra) return ordered
     if (pending) return ordered
@@ -2034,6 +2062,11 @@ export default function Layout(props: ParentProps) {
     const toIndex = ids.findIndex((dir) => dir === droppable.id.toString())
     if (fromIndex === -1 || toIndex === -1) return
     if (fromIndex === toIndex) return
+
+    const from = ids[fromIndex]
+    const to = ids[toIndex]
+    if (!from || !to) return
+    if (workspacePinned(project.worktree, from) !== workspacePinned(project.worktree, to)) return
 
     const result = ids.slice()
     const [item] = result.splice(fromIndex, 1)
@@ -2114,6 +2147,8 @@ export default function Layout(props: ParentProps) {
       dialog.show(() => <DialogResetWorkspace root={root} directory={directory} />),
     showDeleteWorkspaceDialog: (root, directory) =>
       dialog.show(() => <DialogDeleteWorkspace root={root} directory={directory} />),
+    workspacePinned,
+    setWorkspacePinned,
     setScrollContainerRef: (el, mobile) => {
       if (!mobile) scrollContainerRef = el
     },
@@ -2162,6 +2197,14 @@ export default function Layout(props: ParentProps) {
     })
     const projectId = createMemo(() => panelProps.project?.id ?? "")
     const workspaces = createMemo(() => workspaceIds(panelProps.project))
+    const firstUnpinned = createMemo(() => {
+      const project = panelProps.project
+      if (!project) return
+      const list = workspaces()
+      const split = list.findIndex((directory) => !workspacePinned(project.worktree, directory))
+      if (split <= 0) return
+      return list[split]
+    })
     const unseenCount = createMemo(() =>
       workspaces().reduce((total, directory) => total + notification.project.unseenCount(directory), 0),
     )
@@ -2332,6 +2375,7 @@ export default function Layout(props: ParentProps) {
                                   directory={directory}
                                   project={p()}
                                   sortNow={sortNow}
+                                  divider={directory === firstUnpinned()}
                                   mobile={panelProps.mobile}
                                 />
                               )}
