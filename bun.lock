@@ -446,6 +446,22 @@
         "typescript": "catalog:",
       },
     },
+    "packages/session-modal": {
+      "name": "@opencode-ai/session-modal",
+      "version": "0.0.0",
+      "dependencies": {
+        "@opencode-ai/sdk": "workspace:*",
+        "@tauri-apps/api": "^2",
+        "solid-js": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+        "vite-plugin-solid": "catalog:",
+      },
+    },
     "packages/slack": {
       "name": "@opencode-ai/slack",
       "version": "1.2.24",
@@ -1418,6 +1434,8 @@
     "@opencode-ai/script": ["@opencode-ai/script@workspace:packages/script"],
 
     "@opencode-ai/sdk": ["@opencode-ai/sdk@workspace:packages/sdk/js"],
+
+    "@opencode-ai/session-modal": ["@opencode-ai/session-modal@workspace:packages/session-modal"],
 
     "@opencode-ai/slack": ["@opencode-ai/slack@workspace:packages/slack"],
 

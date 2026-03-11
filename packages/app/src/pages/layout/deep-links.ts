@@ -1,5 +1,9 @@
 export const deepLinkEvent = "opencode:deep-link"
 
+export type DeepLinkAction =
+  | { type: "open-project"; directory: string }
+  | { type: "open-session"; directory: string; sessionID: string }
+
 const parseUrl = (input: string) => {
   if (!input.startsWith("opencode://")) return
   if (typeof URL.canParse === "function" && !URL.canParse(input)) return
@@ -13,11 +17,29 @@ const parseUrl = (input: string) => {
 export const parseDeepLink = (input: string) => {
   const url = parseUrl(input)
   if (!url) return
-  if (url.hostname !== "open-project") return
+
+  if (url.hostname === "open-project") {
+    const directory = url.searchParams.get("directory")
+    if (!directory) return
+    return {
+      type: "open-project",
+      directory,
+    }
+  }
+
+  if (url.hostname !== "open-session") return
   const directory = url.searchParams.get("directory")
-  if (!directory) return
-  return directory
+  const sessionID = url.searchParams.get("id") ?? url.searchParams.get("sessionID")
+  if (!directory || !sessionID) return
+  return {
+    type: "open-session",
+    directory,
+    sessionID,
+  }
 }
+
+export const collectDeepLinkActions = (urls: string[]) =>
+  urls.map(parseDeepLink).filter((action): action is DeepLinkAction => !!action)
 
 export const parseNewSessionDeepLink = (input: string) => {
   const url = parseUrl(input)
@@ -30,11 +52,12 @@ export const parseNewSessionDeepLink = (input: string) => {
   return { directory, prompt }
 }
 
-export const collectOpenProjectDeepLinks = (urls: string[]) =>
-  urls.map(parseDeepLink).filter((directory): directory is string => !!directory)
-
 export const collectNewSessionDeepLinks = (urls: string[]) =>
-  urls.map(parseNewSessionDeepLink).filter((link): link is { directory: string; prompt?: string } => !!link)
+  urls.reduce<Array<{ directory: string; prompt?: string }>>((list, url) => {
+    const link = parseNewSessionDeepLink(url)
+    if (link) list.push(link)
+    return list
+  }, [])
 
 type OpenCodeWindow = Window & {
   __OPENCODE__?: {

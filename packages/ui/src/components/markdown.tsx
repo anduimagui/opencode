@@ -1,8 +1,11 @@
 import { useMarked } from "../context/marked"
 import { useI18n } from "../context/i18n"
+import { useData } from "../context/data"
+import { parseCodeFileRef, type FileRef } from "./markdown-file-ref"
 import DOMPurify from "dompurify"
 import morphdom from "morphdom"
 import { checksum } from "@opencode-ai/util/encode"
+import { serializeMarkdownClipboardHTML } from "./markdown-copy"
 import { ComponentProps, createEffect, createResource, createSignal, onCleanup, splitProps } from "solid-js"
 import { isServer } from "solid-js/web"
 
@@ -143,7 +146,7 @@ function ensureCodeWrapper(block: HTMLPreElement, labels: CopyLabels) {
   }
 }
 
-function markCodeLinks(root: HTMLDivElement) {
+function markCodeLinks(root: HTMLDivElement, directory: string, openable: boolean) {
   const codeNodes = Array.from(root.querySelectorAll(":not(pre) > code"))
   for (const code of codeNodes) {
     const href = codeUrl(code.textContent ?? "")
@@ -152,35 +155,46 @@ function markCodeLinks(root: HTMLDivElement) {
         ? code.parentElement
         : null
 
-    if (!href) {
-      if (parentLink) parentLink.replaceWith(code)
+    if (href) {
+      if (parentLink) {
+        parentLink.href = href
+      } else {
+        const link = document.createElement("a")
+        link.href = href
+        link.className = "external-link"
+        link.target = "_blank"
+        link.rel = "noopener noreferrer"
+        code.parentNode?.replaceChild(link, code)
+        link.appendChild(code)
+      }
       continue
     }
 
-    if (parentLink) {
-      parentLink.href = href
-      continue
-    }
+    if (parentLink) parentLink.replaceWith(code)
+    if (!openable) continue
 
-    const link = document.createElement("a")
-    link.href = href
-    link.className = "external-link"
-    link.target = "_blank"
-    link.rel = "noopener noreferrer"
-    code.parentNode?.replaceChild(link, code)
-    link.appendChild(code)
+    const file = parseCodeFileRef(code.textContent ?? "", directory)
+    if (!file) continue
+
+    const button = document.createElement("button")
+    button.type = "button"
+    button.className = "file-link"
+    button.setAttribute("data-file-path", file.path)
+    if (file.line) button.setAttribute("data-file-line", String(file.line))
+    code.parentNode?.replaceChild(button, code)
+    button.appendChild(code)
   }
 }
 
-function decorate(root: HTMLDivElement, labels: CopyLabels) {
+function decorate(root: HTMLDivElement, labels: CopyLabels, directory: string, openable: boolean) {
   const blocks = Array.from(root.querySelectorAll("pre"))
   for (const block of blocks) {
     ensureCodeWrapper(block, labels)
   }
-  markCodeLinks(root)
+  markCodeLinks(root, directory, openable)
 }
 
-function setupCodeCopy(root: HTMLDivElement, labels: CopyLabels) {
+function setupCodeCopy(root: HTMLDivElement, labels: CopyLabels, onFileOpen?: (input: FileRef) => void) {
   const timeouts = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>()
 
   const updateLabel = (button: HTMLButtonElement) => {
@@ -191,6 +205,18 @@ function setupCodeCopy(root: HTMLDivElement, labels: CopyLabels) {
   const handleClick = async (event: MouseEvent) => {
     const target = event.target
     if (!(target instanceof Element)) return
+
+    const file = target.closest("button.file-link")
+    if (file instanceof HTMLButtonElement) {
+      const path = file.getAttribute("data-file-path")
+      const raw = file.getAttribute("data-file-line")
+      const line = raw ? Number(raw) : undefined
+      if (!path || !onFileOpen) return
+      event.preventDefault()
+      event.stopPropagation()
+      onFileOpen({ path, line })
+      return
+    }
 
     const button = target.closest('[data-slot="markdown-copy-button"]')
     if (!(button instanceof HTMLButtonElement)) return
@@ -207,8 +233,6 @@ function setupCodeCopy(root: HTMLDivElement, labels: CopyLabels) {
     timeouts.set(button, timeout)
   }
 
-  decorate(root, labels)
-
   const buttons = Array.from(root.querySelectorAll('[data-slot="markdown-copy-button"]'))
   for (const button of buttons) {
     if (button instanceof HTMLButtonElement) updateLabel(button)
@@ -221,6 +245,44 @@ function setupCodeCopy(root: HTMLDivElement, labels: CopyLabels) {
     for (const timeout of timeouts.values()) {
       clearTimeout(timeout)
     }
+  }
+}
+
+function setupSelectionCopy(root: HTMLDivElement) {
+  const handleCopy = (event: ClipboardEvent) => {
+    const clip = event.clipboardData
+    if (!clip) return
+
+    const selection = window.getSelection()
+    if (!selection) return
+    if (selection.rangeCount === 0 || selection.isCollapsed) return
+    const anchor = selection.anchorNode
+    const focus = selection.focusNode
+    if (!anchor || !focus) return
+    if (!root.contains(anchor) || !root.contains(focus)) return
+
+    const text = selection.toString()
+    if (!text) return
+
+    const range = selection.getRangeAt(0)
+    const wrap = document.createElement("div")
+    wrap.appendChild(range.cloneContents())
+    for (const item of wrap.querySelectorAll('[data-slot="markdown-copy-button"]')) {
+      item.remove()
+    }
+
+    const html = serializeMarkdownClipboardHTML(wrap.innerHTML)
+    if (!html) return
+
+    clip.setData("text/plain", text)
+    clip.setData("text/html", html)
+    event.preventDefault()
+  }
+
+  root.addEventListener("copy", handleCopy)
+
+  return () => {
+    root.removeEventListener("copy", handleCopy)
   }
 }
 
@@ -245,6 +307,7 @@ export function Markdown(
 ) {
   const [local, others] = splitProps(props, ["text", "cacheKey", "class", "classList"])
   const marked = useMarked()
+  const data = useData()
   const i18n = useI18n()
   const [root, setRoot] = createSignal<HTMLDivElement>()
   const [html] = createResource(
@@ -273,12 +336,17 @@ export function Markdown(
 
   let copySetupTimer: ReturnType<typeof setTimeout> | undefined
   let copyCleanup: (() => void) | undefined
+  let selectionCleanup: (() => void) | undefined
 
   createEffect(() => {
     const container = root()
     const content = html()
     if (!container) return
     if (isServer) return
+
+    if (!selectionCleanup) {
+      selectionCleanup = setupSelectionCopy(container)
+    }
 
     if (!content) {
       container.innerHTML = ""
@@ -287,10 +355,15 @@ export function Markdown(
 
     const temp = document.createElement("div")
     temp.innerHTML = content
-    decorate(temp, {
-      copy: i18n.t("ui.message.copy"),
-      copied: i18n.t("ui.message.copied"),
-    })
+    decorate(
+      temp,
+      {
+        copy: i18n.t("ui.message.copy"),
+        copied: i18n.t("ui.message.copied"),
+      },
+      data.directory,
+      !!data.openFilePath,
+    )
 
     morphdom(container, temp, {
       childrenOnly: true,
@@ -303,16 +376,21 @@ export function Markdown(
     if (copySetupTimer) clearTimeout(copySetupTimer)
     copySetupTimer = setTimeout(() => {
       if (copyCleanup) copyCleanup()
-      copyCleanup = setupCodeCopy(container, {
-        copy: i18n.t("ui.message.copy"),
-        copied: i18n.t("ui.message.copied"),
-      })
+      copyCleanup = setupCodeCopy(
+        container,
+        {
+          copy: i18n.t("ui.message.copy"),
+          copied: i18n.t("ui.message.copied"),
+        },
+        data.openFilePath,
+      )
     }, 150)
   })
 
   onCleanup(() => {
     if (copySetupTimer) clearTimeout(copySetupTimer)
     if (copyCleanup) copyCleanup()
+    if (selectionCleanup) selectionCleanup()
   })
 
   return (

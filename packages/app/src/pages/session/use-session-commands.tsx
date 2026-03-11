@@ -7,22 +7,27 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
+import { usePlatform } from "@/context/platform"
 import { usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { DialogSelectFile } from "@/components/dialog-select-file"
+import { DialogSettings } from "@/components/dialog-settings"
 import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
 import { DialogFork } from "@/components/dialog-fork"
 import { showToast } from "@opencode-ai/ui/toast"
 import { findLast } from "@opencode-ai/util/array"
 import { extractPromptFromParts } from "@/utils/prompt"
-import { UserMessage } from "@opencode-ai/sdk/v2"
+import { formatSessionTranscript } from "@opencode-ai/util/session-transcript"
+import { type UserMessage } from "@opencode-ai/sdk/v2"
 import { canAddSelectionContext } from "@/pages/session/session-command-helpers"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
+  jumpToTop: () => void
+  jumpToBottom: () => void
   setActiveMessage: (message: UserMessage | undefined) => void
   focusInput: () => void
 }
@@ -41,6 +46,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const language = useLanguage()
   const local = useLocal()
   const permission = usePermission()
+  const platform = usePlatform()
   const prompt = usePrompt()
   const sdk = useSDK()
   const sync = useSync()
@@ -64,6 +70,41 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     return userMessages().filter((m) => m.id < revert)
   })
 
+  const writeClipboard = (value: string) => {
+    if (platform.writeClipboardText) {
+      const result = platform.writeClipboardText(value)
+      if (result instanceof Promise) {
+        return result.then(
+          (ok) => ok,
+          () => false,
+        )
+      }
+      return Promise.resolve(result)
+    }
+
+    const body = typeof document === "undefined" ? undefined : document.body
+    if (body) {
+      const textarea = document.createElement("textarea")
+      textarea.value = value
+      textarea.setAttribute("readonly", "")
+      textarea.style.position = "fixed"
+      textarea.style.opacity = "0"
+      textarea.style.pointerEvents = "none"
+      body.appendChild(textarea)
+      textarea.select()
+      const copied = document.execCommand("copy")
+      body.removeChild(textarea)
+      if (copied) return Promise.resolve(true)
+    }
+
+    const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard
+    if (!clipboard?.writeText) return Promise.resolve(false)
+    return clipboard.writeText(value).then(
+      () => true,
+      () => false,
+    )
+  }
+
   const showAllFiles = () => {
     if (layout.fileTree.tab() !== "changes") return
     layout.fileTree.setTab("all")
@@ -79,12 +120,38 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     return lines.slice(0, 2).join("\n")
   }
 
+  const write = (value: string) => {
+    const body = typeof document === "undefined" ? undefined : document.body
+    if (body) {
+      const textarea = document.createElement("textarea")
+      textarea.value = value
+      textarea.setAttribute("readonly", "")
+      textarea.style.position = "fixed"
+      textarea.style.opacity = "0"
+      textarea.style.pointerEvents = "none"
+      body.appendChild(textarea)
+      textarea.select()
+      const copied = document.execCommand("copy")
+      body.removeChild(textarea)
+      if (copied) return Promise.resolve(true)
+    }
+
+    const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard
+    if (!clipboard?.writeText) return Promise.resolve(false)
+    return clipboard.writeText(value).then(
+      () => true,
+      () => false,
+    )
+  }
+
   const addSelectionToContext = (path: string, selection: FileSelection) => {
     const preview = selectionPreview(path, selection)
     prompt.context.add({ type: "file", path, selection, preview })
   }
 
   const navigateMessageByOffset = actions.navigateMessageByOffset
+  const jumpToTop = actions.jumpToTop
+  const jumpToBottom = actions.jumpToBottom
   const setActiveMessage = actions.setActiveMessage
   const focusInput = actions.focusInput
 
@@ -216,6 +283,22 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       disabled: !params.id,
       onSelect: () => navigateMessageByOffset(1),
     }),
+    sessionCommand({
+      id: "message.top",
+      title: language.t("command.message.top"),
+      description: language.t("command.message.top.description"),
+      keybind: "mod+shift+arrowup",
+      disabled: !params.id,
+      onSelect: () => jumpToTop(),
+    }),
+    sessionCommand({
+      id: "message.bottom",
+      title: language.t("command.message.bottom"),
+      description: language.t("command.message.bottom.description"),
+      keybind: "mod+shift+arrowdown",
+      disabled: !params.id,
+      onSelect: () => jumpToBottom(),
+    }),
   ])
 
   const agentCommands = createMemo(() => [
@@ -226,6 +309,44 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       keybind: "mod+'",
       slash: "model",
       onSelect: () => dialog.show(() => <DialogSelectModel />),
+    }),
+    modelCommand({
+      id: "model.quick.switch",
+      title: language.t("command.model.quick.switch"),
+      description: language.t("command.model.quick.switch.description"),
+      keybind: "mod+shift+arrowdown",
+      onSelect: () => {
+        if (local.model.quick.list().length < 2) {
+          showToast({
+            title: language.t("toast.model.quick.none.title"),
+            description: language.t("toast.model.quick.none.description"),
+          })
+          return
+        }
+        local.model.quick.cycle(1)
+      },
+    }),
+    modelCommand({
+      id: "model.quick.switch.reverse",
+      title: language.t("command.model.quick.switch.reverse"),
+      description: language.t("command.model.quick.switch.reverse.description"),
+      keybind: "mod+shift+arrowup",
+      onSelect: () => {
+        if (local.model.quick.list().length < 2) {
+          showToast({
+            title: language.t("toast.model.quick.none.title"),
+            description: language.t("toast.model.quick.none.description"),
+          })
+          return
+        }
+        local.model.quick.cycle(-1)
+      },
+    }),
+    modelCommand({
+      id: "model.quick.settings",
+      title: language.t("command.model.quick.settings"),
+      description: language.t("command.model.quick.settings.description"),
+      onSelect: () => dialog.show(() => <DialogSettings tab="models" />),
     }),
     mcpCommand({
       id: "mcp.toggle",
@@ -372,6 +493,49 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       },
     }),
     sessionCommand({
+      id: "session.copy",
+      title: language.t("command.session.copy"),
+      description: language.t("command.session.copy.description"),
+      slash: "copy",
+      disabled: !params.id,
+      onSelect: async () => {
+        const sessionID = params.id
+        if (!sessionID) return
+
+        const session = info()
+        if (!session) return
+
+        const rows = await sdk.client.session.messages({ sessionID }).then(
+          (res) => res.data,
+          () => undefined,
+        )
+        if (!rows) {
+          showToast({
+            title: language.t("toast.session.copy.failed.title"),
+            description: language.t("toast.session.copy.failed.description"),
+            variant: "error",
+          })
+          return
+        }
+
+        const ok = await writeClipboard(formatSessionTranscript(session, rows))
+        if (!ok) {
+          showToast({
+            title: language.t("toast.session.copy.failed.title"),
+            description: language.t("toast.session.copy.failed.description"),
+            variant: "error",
+          })
+          return
+        }
+
+        showToast({
+          title: language.t("toast.session.copy.success.title"),
+          description: language.t("toast.session.copy.success.description"),
+          variant: "success",
+        })
+      },
+    }),
+    sessionCommand({
       id: "session.fork",
       title: language.t("command.session.fork"),
       description: language.t("command.session.fork.description"),
@@ -395,32 +559,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         onSelect: async () => {
           if (!params.id) return
 
-          const write = (value: string) => {
-            const body = typeof document === "undefined" ? undefined : document.body
-            if (body) {
-              const textarea = document.createElement("textarea")
-              textarea.value = value
-              textarea.setAttribute("readonly", "")
-              textarea.style.position = "fixed"
-              textarea.style.opacity = "0"
-              textarea.style.pointerEvents = "none"
-              body.appendChild(textarea)
-              textarea.select()
-              const copied = document.execCommand("copy")
-              body.removeChild(textarea)
-              if (copied) return Promise.resolve(true)
-            }
-
-            const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard
-            if (!clipboard?.writeText) return Promise.resolve(false)
-            return clipboard.writeText(value).then(
-              () => true,
-              () => false,
-            )
-          }
-
           const copy = async (url: string, existing: boolean) => {
-            const ok = await write(url)
+            const ok = await writeClipboard(url)
             if (!ok) {
               showToast({
                 title: language.t("toast.session.share.copyFailed.title"),

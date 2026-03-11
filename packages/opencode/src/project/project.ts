@@ -31,6 +31,75 @@ export namespace Project {
     return path.resolve(cwd, name)
   }
 
+  function sortPath(a: string, b: string) {
+    if (a.length !== b.length) return a.length - b.length
+    return a.localeCompare(b)
+  }
+
+  async function iconURL(file: string) {
+    const text = await Filesystem.readText(file)
+      .then((x) => x.trim())
+      .catch(() => undefined)
+    if (!text) return
+    if (text.startsWith("data:")) return text
+    if (text.startsWith("http://") || text.startsWith("https://")) return text
+    const line = text
+      .split(/\r?\n/)
+      .map((x) => x.trim())
+      .find((x) => x.toUpperCase().startsWith("URL="))
+    if (!line) return
+    const url = line.slice(4).trim()
+    if (!url.startsWith("data:") && !url.startsWith("http://") && !url.startsWith("https://")) return
+    return url
+  }
+
+  async function iconData(file: string) {
+    if (path.extname(file).toLowerCase() === ".url") return iconURL(file)
+    const mime = Filesystem.mimeType(file)
+    if (!mime.startsWith("image/")) return
+    const buffer = await Filesystem.readBytes(file)
+    const base64 = buffer.toString("base64")
+    return `data:${mime};base64,${base64}`
+  }
+
+  async function configuredIcon(worktree: string) {
+    const files = await Glob.scan(".opencode/icon/**/*", {
+      cwd: worktree,
+      absolute: true,
+      include: "file",
+    })
+
+    for (const file of files.toSorted(sortPath)) {
+      const url = await iconData(file).catch(() => undefined)
+      if (!url) continue
+      return { url }
+    }
+
+    const roots = await Glob.scan(".opencode/icon.{ico,png,svg,jpg,jpeg,webp,avif,gif,url}", {
+      cwd: worktree,
+      absolute: true,
+      include: "file",
+    })
+
+    for (const file of roots.toSorted(sortPath)) {
+      const url = await iconData(file).catch(() => undefined)
+      if (!url) continue
+      return { url }
+    }
+
+    const favicons = await Glob.scan(".opencode/**/favicon.{ico,png,svg,jpg,jpeg,webp,avif,gif,url}", {
+      cwd: worktree,
+      absolute: true,
+      include: "file",
+    })
+
+    for (const file of favicons.toSorted(sortPath)) {
+      const url = await iconData(file).catch(() => undefined)
+      if (!url) continue
+      return { url }
+    }
+  }
+
   export const Info = z
     .object({
       id: z.string(),
@@ -70,7 +139,7 @@ export namespace Project {
   export function fromRow(row: Row): Info {
     const icon =
       row.icon_url || row.icon_color
-        ? { url: row.icon_url ?? undefined, color: row.icon_color ?? undefined }
+        ? { url: row.icon_url ?? undefined, override: row.icon_url ?? undefined, color: row.icon_color ?? undefined }
         : undefined
     return {
       id: row.id,
@@ -234,10 +303,33 @@ export namespace Project {
       return fresh
     })
 
-    if (Flag.OPENCODE_EXPERIMENTAL_ICON_DISCOVERY) discover(existing)
+    const icon = await configuredIcon(directory)
+      .then(async (item) => {
+        if (item) return item
+        if (directory === data.worktree) return
+        return configuredIcon(data.worktree)
+      })
+      .then((item) => {
+        if (!item) return existing.icon
+        return {
+          ...existing.icon,
+          ...item,
+          override: item.url ?? existing.icon?.override,
+        }
+      })
+      .catch((error) => {
+        log.warn("failed to load project icon from .opencode", { error, directory, worktree: data.worktree })
+        return existing.icon
+      })
+    const seeded = {
+      ...existing,
+      icon,
+    }
+
+    if (Flag.OPENCODE_EXPERIMENTAL_ICON_DISCOVERY) discover(seeded)
 
     const result: Info = {
-      ...existing,
+      ...seeded,
       worktree: data.worktree,
       vcs: data.vcs as Info["vcs"],
       time: {
@@ -253,7 +345,7 @@ export namespace Project {
       worktree: result.worktree,
       vcs: result.vcs ?? null,
       name: result.name,
-      icon_url: result.icon?.url,
+      icon_url: result.icon?.url ?? result.icon?.override,
       icon_color: result.icon?.color,
       time_created: result.time.created,
       time_updated: result.time.updated,
@@ -265,7 +357,7 @@ export namespace Project {
       worktree: result.worktree,
       vcs: result.vcs ?? null,
       name: result.name,
-      icon_url: result.icon?.url,
+      icon_url: result.icon?.url ?? result.icon?.override,
       icon_color: result.icon?.color,
       time_updated: result.time.updated,
       time_initialized: result.time.initialized,
@@ -288,24 +380,28 @@ export namespace Project {
     if (input.vcs !== "git") return
     if (input.icon?.override) return
     if (input.icon?.url) return
-    const matches = await Glob.scan("**/favicon.{ico,png,svg,jpg,jpeg,webp}", {
+    const preferred = await Glob.scan(".opencode/**/favicon.{ico,png,svg,jpg,jpeg,webp,avif,gif,url}", {
       cwd: input.worktree,
       absolute: true,
       include: "file",
     })
-    const shortest = matches.sort((a, b) => a.length - b.length)[0]
-    if (!shortest) return
-    const buffer = await Filesystem.readBytes(shortest)
-    const base64 = buffer.toString("base64")
-    const mime = Filesystem.mimeType(shortest) || "image/png"
-    const url = `data:${mime};base64,${base64}`
-    await update({
-      projectID: input.id,
-      icon: {
-        url,
-      },
+    const discovered = await Glob.scan("**/favicon.{ico,png,svg,jpg,jpeg,webp,avif,gif,url}", {
+      cwd: input.worktree,
+      absolute: true,
+      include: "file",
     })
-    return
+    const files = [...preferred.toSorted(sortPath), ...discovered.toSorted(sortPath)]
+    for (const file of files) {
+      const url = await iconData(file).catch(() => undefined)
+      if (!url) continue
+      await update({
+        projectID: input.id,
+        icon: {
+          url,
+        },
+      })
+      return
+    }
   }
 
   async function migrateFromGlobal(id: string, worktree: string) {
@@ -386,7 +482,7 @@ export namespace Project {
           .update(ProjectTable)
           .set({
             name: input.name,
-            icon_url: input.icon?.url,
+            icon_url: input.icon?.url ?? input.icon?.override,
             icon_color: input.icon?.color,
             commands: input.commands,
             time_updated: Date.now(),

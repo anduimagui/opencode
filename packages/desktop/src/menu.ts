@@ -70,6 +70,25 @@ export async function createMenu(trigger: (id: string) => void) {
             action: () => trigger("session.new"),
           }),
           await MenuItem.new({
+            text: "Search All Sessions...",
+            accelerator: "Shift+Cmd+P",
+            action: () => trigger("session.search.all"),
+          }),
+          await MenuItem.new({
+            text: t("desktop.menu.file.renameSession"),
+            accelerator: "Shift+Cmd+E",
+            action: () => trigger("session.rename"),
+          }),
+          await MenuItem.new({
+            text: t("command.session.copy"),
+            action: () => trigger("session.copy"),
+          }),
+          await MenuItem.new({
+            text: "Clone Project...",
+            accelerator: "Shift+Cmd+O",
+            action: () => trigger("project.clone"),
+          }),
+          await MenuItem.new({
             text: t("desktop.menu.file.openProject"),
             accelerator: "Cmd+O",
             action: () => trigger("project.open"),
@@ -148,6 +167,26 @@ export async function createMenu(trigger: (id: string) => void) {
             action: () => trigger("session.next"),
             text: t("desktop.menu.view.nextSession"),
             accelerator: "Option+ArrowDown",
+          }),
+          await MenuItem.new({
+            action: () => trigger("message.top"),
+            text: t("desktop.menu.view.jumpToTop"),
+            accelerator: "Shift+Cmd+ArrowUp",
+          }),
+          await MenuItem.new({
+            action: () => trigger("message.bottom"),
+            text: t("desktop.menu.view.jumpToBottom"),
+            accelerator: "Shift+Cmd+ArrowDown",
+          }),
+          await MenuItem.new({
+            action: () => trigger("session.archive"),
+            text: t("desktop.menu.view.archiveSession"),
+            accelerator: "Cmd+Shift+Backspace",
+          }),
+          await MenuItem.new({
+            action: () => trigger("session.unarchive"),
+            text: t("desktop.menu.view.unarchiveSession"),
+            accelerator: "Cmd+Shift+U",
           }),
           await PredefinedMenuItem.new({
             item: "Separator",

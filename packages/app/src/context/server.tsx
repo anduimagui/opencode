@@ -34,6 +34,15 @@ function isLocalHost(url: string) {
   if (host === "localhost" || host === "127.0.0.1") return "local"
 }
 
+export function normalizeWorktree(input: string) {
+  const value = input.trim()
+  const next = value.replace(/[\/\\]+$/, "")
+  if (next) return next
+  if (value.startsWith("\\")) return "\\"
+  if (value.startsWith("/")) return "/"
+  return value
+}
+
 export namespace ServerConnection {
   type Base = { displayName?: string }
 
@@ -243,7 +252,8 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
           const key = origin()
           if (!key) return
           const current = store.projects[key] ?? []
-          if (current.find((x) => x.worktree === directory)) return
+          const target = normalizeWorktree(directory)
+          if (current.find((x) => normalizeWorktree(x.worktree) === target)) return
           setStore("projects", key, [{ worktree: directory, expanded: true }, ...current])
         },
         close(directory: string) {

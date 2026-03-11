@@ -1,5 +1,13 @@
-import { getFilename } from "@opencode-ai/util/path"
+import { getDirectory, getFilename } from "@opencode-ai/util/path"
 import { type Session } from "@opencode-ai/sdk/v2/client"
+
+export type ProjectGroup<T extends { worktree: string }> = {
+  id: string
+  label: string
+  projects: T[]
+}
+
+const manualProjectGroupID = (directory: string) => `project:${workspaceKey(directory)}`
 
 export const workspaceKey = (directory: string) => {
   const drive = directory.match(/^([A-Za-z]:)[\\/]+$/)
@@ -97,6 +105,113 @@ export const effectiveWorkspaceOrder = (local: string, dirs: string[], persisted
   }
 
   return [...result, ...live.values()]
+}
+
+export const projectGroupID = (directory: string) => {
+  const parent = workspaceKey(getDirectory(workspaceKey(directory)))
+  return parent || workspaceKey(directory)
+}
+
+export const projectGroupLabel = (id: string) => {
+  const name = getFilename(id)
+  if (name) return name
+  if (id === "/" || id === "\\") return id
+  return id.replace(/[\\/]+$/, "")
+}
+
+export const createProjectGroups = <T extends { worktree: string; name?: string }>(
+  projects: T[],
+  parentByProject: Record<string, string> = {},
+) => {
+  const normalizedParent = Object.entries(parentByProject).reduce(
+    (acc, [child, parent]) => {
+      const key = workspaceKey(child)
+      const root = workspaceKey(parent)
+      if (!key || !root || key === root) return acc
+      acc[key] = root
+      return acc
+    },
+    {} as Record<string, string>,
+  )
+
+  const parentSet = new Set(Object.values(normalizedParent))
+  const projectByWorktree = new Map(projects.map((project) => [workspaceKey(project.worktree), project]))
+  const groups = new Map<string, ProjectGroup<T>>()
+  for (const project of projects) {
+    const key = workspaceKey(project.worktree)
+    const parent = normalizedParent[key]
+    const id = parent
+      ? manualProjectGroupID(parent)
+      : parentSet.has(key)
+        ? manualProjectGroupID(key)
+        : projectGroupID(project.worktree)
+
+    const group = groups.get(id)
+    if (group) {
+      group.projects.push(project)
+      continue
+    }
+
+    const label = id.startsWith("project:")
+      ? displayName(projectByWorktree.get(id.slice("project:".length)) ?? { worktree: id.slice("project:".length) })
+      : projectGroupLabel(id)
+
+    groups.set(id, {
+      id,
+      label,
+      projects: [project],
+    })
+  }
+
+  const grouped = [...groups.values()].map((group) => {
+    if (!group.id.startsWith("project:")) return group
+    const root = group.id.slice("project:".length)
+    const projects = group.projects.slice().sort((a, b) => {
+      const aRoot = workspaceKey(a.worktree) === root
+      const bRoot = workspaceKey(b.worktree) === root
+      if (aRoot && !bRoot) return -1
+      if (!aRoot && bRoot) return 1
+      return 0
+    })
+    return {
+      ...group,
+      projects,
+    }
+  })
+
+  return [
+    {
+      id: "all",
+      label: "All projects",
+      projects,
+    },
+    ...grouped,
+  ]
+}
+
+export const effectiveWorkspacePinnedOrder = (
+  local: string,
+  dirs: string[],
+  persisted?: string[],
+  pinned?: string[],
+) => {
+  const ordered = effectiveWorkspaceOrder(local, dirs, persisted)
+  if (!pinned?.length) return ordered
+
+  const set = new Set(pinned.map((dir) => workspaceKey(dir)))
+  if (set.size === 0) return ordered
+
+  const pinnedDirs = [] as string[]
+  const rest = [] as string[]
+  for (const dir of ordered) {
+    if (set.has(workspaceKey(dir))) {
+      pinnedDirs.push(dir)
+      continue
+    }
+    rest.push(dir)
+  }
+
+  return [...pinnedDirs, ...rest]
 }
 
 export const syncWorkspaceOrder = effectiveWorkspaceOrder

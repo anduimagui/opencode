@@ -1,12 +1,23 @@
-import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX } from "solid-js"
+import {
+  For,
+  Index,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+  Show,
+  startTransition,
+  type JSX,
+} from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate, useParams } from "@solidjs/router"
 import { Button } from "@opencode-ai/ui/button"
+import { Dialog } from "@opencode-ai/ui/dialog"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
@@ -19,6 +30,8 @@ import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
+import { useCommand } from "@/context/command"
+import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
@@ -207,15 +220,19 @@ export function MessageTimeline(props: {
 }) {
   let touchGesture: number | undefined
 
-  const params = useParams()
   const navigate = useNavigate()
+  const params = useParams()
   const sdk = useSDK()
   const sync = useSync()
   const settings = useSettings()
+  const platform = usePlatform()
   const dialog = useDialog()
   const language = useLanguage()
+  const command = useCommand()
+  const assistantCopyMode = createMemo(() =>
+    platform.platform === "desktop" ? settings.general.assistantCopyFormat() : "plain",
+  )
 
-  const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const sessionID = createMemo(() => params.id)
   const sessionMessages = createMemo(() => {
@@ -337,6 +354,15 @@ export function MessageTimeline(props: {
     })
   }
 
+  command.register("session-title", () => [
+    {
+      id: "session.rename",
+      title: language.t("common.rename"),
+      category: language.t("command.category.session"),
+      disabled: !sessionID(),
+      onSelect: () => openTitleEditor(),
+    },
+  ])
   const closeTitleEditor = () => {
     if (title.saving) return
     setTitle({ editing: false, saving: false })
@@ -507,6 +533,7 @@ export function MessageTimeline(props: {
       </Dialog>
     )
   }
+  const rendered = createMemo(() => staging.messages().map((message) => message.id))
 
   return (
     <Show
@@ -808,6 +835,7 @@ export function MessageTimeline(props: {
                         queued={queued()}
                         status={active() ? sessionStatus() : undefined}
                         showReasoningSummaries={settings.general.showReasoningSummaries()}
+                        assistantCopyMode={assistantCopyMode()}
                         shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
                         editToolDefaultOpen={settings.general.editToolPartsExpanded()}
                         classes={{

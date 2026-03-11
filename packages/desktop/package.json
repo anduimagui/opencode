@@ -6,8 +6,10 @@
   "license": "MIT",
   "scripts": {
     "typecheck": "tsgo -b",
+    "test:clone": "cargo test --manifest-path src-tauri/Cargo.toml test_clone_with_git_real_repository -- --nocapture",
     "predev": "bun ./scripts/predev.ts",
     "dev": "vite",
+    "dev:session-modal": "VITE_OPEN_SESSION_SEARCH=1 tauri dev",
     "build": "bun run typecheck && vite build",
     "preview": "vite preview",
     "tauri": "tauri"

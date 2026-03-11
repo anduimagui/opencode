@@ -3,7 +3,7 @@ import type { AsyncStorage, SyncStorage } from "@solid-primitives/storage"
 import type { Accessor } from "solid-js"
 
 type PickerPaths = string | string[] | null
-type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
+type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean; defaultPath?: string }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
 type UpdateInfo = { updateAvailable: boolean; version?: string }
@@ -23,6 +23,18 @@ export type Platform = {
 
   /** Open a local path in a local app (desktop only) */
   openPath?(path: string, app?: string): Promise<void>
+
+  /** Normalize user-provided project path for the current platform */
+  normalizeProjectPath?(path: string): Promise<string>
+
+  /** Clone a remote git repository and return the local directory */
+  cloneGitRepository?(url: string, directory?: string): Promise<string>
+
+  /** Get default local clone directory for this platform */
+  getDefaultCloneDirectory?(): Promise<string | null>
+
+  /** Set default local clone directory for this platform */
+  setDefaultCloneDirectory?(path: string | null): Promise<void> | void
 
   /** Restart the app  */
   restart(): Promise<void>
@@ -86,6 +98,9 @@ export type Platform = {
 
   /** Read image from clipboard (desktop only) */
   readClipboardImage?(): Promise<File | null>
+
+  /** Write text to clipboard (desktop only) */
+  writeClipboardText?(value: string): Promise<boolean> | boolean
 }
 
 export type DisplayBackend = "auto" | "wayland"

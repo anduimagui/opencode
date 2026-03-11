@@ -818,19 +818,41 @@ export default function Page() {
   }
 
   const focusInput = () => inputRef?.focus()
+  const jumpToTop = () => {
+    const el = scroller
+    if (!el) return
+    autoScroll.pause()
+    el.scrollTo({ top: 0, behavior: "auto" })
+  }
 
   useSessionCommands({
     navigateMessageByOffset,
+    jumpToTop,
+    jumpToBottom: () => resumeScroll(),
     setActiveMessage,
     focusInput,
   })
 
   const openReviewFile = createOpenReviewFile({
     showAllFiles,
+    openReviewPanel,
     tabForPath: file.tab,
     openTab: tabs().open,
     setActive: tabs().setActive,
+    setSelectedLines: file.setSelectedLines,
     loadFile: file.load,
+  })
+
+  onMount(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<{ path?: string; line?: number }>).detail
+      const path = detail?.path
+      if (!path) return
+      openReviewFile(path, detail?.line)
+    }
+
+    window.addEventListener("opencode:open-file-path", open)
+    onCleanup(() => window.removeEventListener("opencode:open-file-path", open))
   })
 
   const changesOptions = ["session", "turn"] as const

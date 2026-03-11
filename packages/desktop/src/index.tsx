@@ -12,7 +12,7 @@ import {
 import { Splash } from "@opencode-ai/ui/logo"
 import type { AsyncStorage } from "@solid-primitives/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { readImage } from "@tauri-apps/plugin-clipboard-manager"
+import { readImage, writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link"
 import { open, save } from "@tauri-apps/plugin-dialog"
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http"
@@ -43,6 +43,12 @@ void initI18n()
 let update: Update | null = null
 
 const deepLinkEvent = "opencode:deep-link"
+const openSessionSearchOnStart = import.meta.env.VITE_OPEN_SESSION_SEARCH === "1"
+
+if (openSessionSearchOnStart) {
+  window.__OPENCODE__ ??= {}
+  window.__OPENCODE__.openSessionSearchOnStart = true
+}
 
 const emitDeepLinks = (urls: string[]) => {
   if (urls.length === 0) return
@@ -70,6 +76,12 @@ const createPlatform = (): Platform => {
     return commands.wslPath("~", "windows").catch(() => undefined)
   }
 
+  const wslDialogPath = async (path?: string) => {
+    if (!path) return wslHome()
+    if (os !== "windows" || !window.__OPENCODE__?.wsl) return path
+    return commands.wslPath(path, "windows").catch(() => path)
+  }
+
   const handleWslPicker = async <T extends string | string[]>(result: T | null): Promise<T | null> => {
     if (!result || !window.__OPENCODE__?.wsl) return result
     if (Array.isArray(result)) {
@@ -84,7 +96,7 @@ const createPlatform = (): Platform => {
     version: pkg.version,
 
     async openDirectoryPickerDialog(opts) {
-      const defaultPath = await wslHome()
+      const defaultPath = await wslDialogPath(opts?.defaultPath)
       const result = await open({
         directory: true,
         multiple: opts?.multiple ?? false,
@@ -113,6 +125,21 @@ const createPlatform = (): Platform => {
 
     openLink(url: string) {
       void shellOpen(url).catch(() => undefined)
+    },
+    async normalizeProjectPath(path: string) {
+      if (os === "windows" && window.__OPENCODE__?.wsl) {
+        return commands.wslPath(path, "linux").catch(() => path)
+      }
+      return path
+    },
+    cloneGitRepository(url: string, directory?: string) {
+      return commands.cloneGitRepository(url, directory ?? null)
+    },
+    async getDefaultCloneDirectory() {
+      return commands.getDefaultCloneDirectory().catch(() => null)
+    },
+    async setDefaultCloneDirectory(path: string | null) {
+      await commands.setDefaultCloneDirectory(path)
     },
     async openPath(path: string, app?: string) {
       await commands.openPath(path, app ?? null)
@@ -400,6 +427,13 @@ const createPlatform = (): Platform => {
         }, "image/png")
       })
     },
+
+    writeClipboardText: async (value: string) => {
+      return writeText(value).then(
+        () => true,
+        () => false,
+      )
+    },
   }
 }
 
@@ -426,10 +460,22 @@ render(() => {
     }
   }
 
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault()
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault()
+  }
+
   onMount(() => {
     document.addEventListener("click", handleClick)
+    window.addEventListener("dragover", handleDragOver)
+    window.addEventListener("drop", handleDrop)
     onCleanup(() => {
       document.removeEventListener("click", handleClick)
+      window.removeEventListener("dragover", handleDragOver)
+      window.removeEventListener("drop", handleDrop)
     })
   })
 

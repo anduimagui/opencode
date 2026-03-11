@@ -68,8 +68,19 @@ function init() {
       event.stopPropagation()
     }
 
+    const preventFileDropNavigation = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes("Files")) return
+      event.preventDefault()
+    }
+
     window.addEventListener("keydown", onKeyDown, true)
-    onCleanup(() => window.removeEventListener("keydown", onKeyDown, true))
+    window.addEventListener("dragover", preventFileDropNavigation, true)
+    window.addEventListener("drop", preventFileDropNavigation, true)
+    onCleanup(() => {
+      window.removeEventListener("keydown", onKeyDown, true)
+      window.removeEventListener("dragover", preventFileDropNavigation, true)
+      window.removeEventListener("drop", preventFileDropNavigation, true)
+    })
   })
 
   const show = (element: DialogElement, owner: Owner, onClose?: () => void) => {
